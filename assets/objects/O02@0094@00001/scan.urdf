@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<robot name="O02_0094_00001">
+  <link name="base">
+    <inertial>
+      <origin xyz="0.0006000770254591785 0.00020145812829843457 0.0001912773539201182" rpy="0 0 0"/>
+      <mass value="0.22478762454194423"/>
+      <inertia ixx="0.00028287032885275233" ixy="-2.2116150398001614e-07" ixz="2.175085341202327e-06" iyy="0.0004514721398100836" iyz="-5.139521316473189e-07" izz="0.0001811907173608917"/>
+    </inertial>
+    <visual><geometry><mesh filename="scan.ply" scale="1 1 1"/></geometry></visual>
+    <collision><geometry><mesh filename="scan.ply" scale="1 1 1"/></geometry></collision>
+  </link>
+</robot>

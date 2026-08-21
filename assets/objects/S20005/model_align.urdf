@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="S20005">
+  <link name="base">
+    <inertial>
+      <origin xyz="-0.0012041496166456263 -0.006007681607365097 0.003760628492040131" rpy="0 0 0"/>
+      <mass value="0.12069902429407407"/>
+      <inertia ixx="0.0003657852347909797" ixy="4.16623551836364e-06" ixz="-1.722609549054915e-05" iyy="0.0003287477528388815" iyz="-3.170376972524437e-05" izz="4.307751531422518e-05"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="model_align.obj" scale="1 1 1"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="model_align.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>
