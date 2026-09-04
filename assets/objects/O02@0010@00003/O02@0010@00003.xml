@@ -1,0 +1,81 @@
+<mujoco model="O02@0010@00003">
+  <compiler meshdir="parts" angle="radian"/>
+  <default>
+    <default class="collision">
+      <geom group="3" contype="1" conaffinity="1" rgba="0.7 0.5 0.3 1"/>
+    </default>
+  </default>
+  <asset>
+    <mesh name="O02@0010@00003_part0" file="part_00.obj"/>
+    <mesh name="O02@0010@00003_part1" file="part_01.obj"/>
+    <mesh name="O02@0010@00003_part2" file="part_02.obj"/>
+    <mesh name="O02@0010@00003_part3" file="part_03.obj"/>
+    <mesh name="O02@0010@00003_part4" file="part_04.obj"/>
+    <mesh name="O02@0010@00003_part5" file="part_05.obj"/>
+    <mesh name="O02@0010@00003_part6" file="part_06.obj"/>
+    <mesh name="O02@0010@00003_part7" file="part_07.obj"/>
+    <mesh name="O02@0010@00003_part8" file="part_08.obj"/>
+    <mesh name="O02@0010@00003_part9" file="part_09.obj"/>
+    <mesh name="O02@0010@00003_part10" file="part_10.obj"/>
+    <mesh name="O02@0010@00003_part11" file="part_11.obj"/>
+    <mesh name="O02@0010@00003_part12" file="part_12.obj"/>
+    <mesh name="O02@0010@00003_part13" file="part_13.obj"/>
+    <mesh name="O02@0010@00003_part14" file="part_14.obj"/>
+    <mesh name="O02@0010@00003_part15" file="part_15.obj"/>
+    <mesh name="O02@0010@00003_part16" file="part_16.obj"/>
+    <mesh name="O02@0010@00003_part17" file="part_17.obj"/>
+    <mesh name="O02@0010@00003_part18" file="part_18.obj"/>
+    <mesh name="O02@0010@00003_part19" file="part_19.obj"/>
+    <mesh name="O02@0010@00003_part20" file="part_20.obj"/>
+    <mesh name="O02@0010@00003_part21" file="part_21.obj"/>
+    <mesh name="O02@0010@00003_part22" file="part_22.obj"/>
+    <mesh name="O02@0010@00003_part23" file="part_23.obj"/>
+    <mesh name="O02@0010@00003_part24" file="part_24.obj"/>
+    <mesh name="O02@0010@00003_part25" file="part_25.obj"/>
+    <mesh name="O02@0010@00003_part26" file="part_26.obj"/>
+    <mesh name="O02@0010@00003_part27" file="part_27.obj"/>
+    <mesh name="O02@0010@00003_part28" file="part_28.obj"/>
+    <mesh name="O02@0010@00003_part29" file="part_29.obj"/>
+    <mesh name="O02@0010@00003_part30" file="part_30.obj"/>
+    <mesh name="O02@0010@00003_part31" file="part_31.obj"/>
+  </asset>
+  <worldbody>
+    <body name="O02@0010@00003" pos="0 0 0">
+      <freejoint name="O02@0010@00003_free"/>
+      <inertial pos="-0.0015464705176457176 -0.010791709223769826 -0.0009235333854200191" mass="0.7186651014710778"
+                fullinertia="0.001119598108811596 0.0009066101083677592 0.0008504326956178324 -4.520558753236133e-06 -6.95041998053548e-08 -1.988826573756945e-05"/>
+      <geom type="mesh" mesh="O02@0010@00003_part0" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part1" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part2" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part3" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part4" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part5" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part6" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part7" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part8" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part9" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part10" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part11" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part12" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part13" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part14" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part15" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part16" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part17" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part18" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part19" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part20" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part21" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part22" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part23" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part24" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part25" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part26" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part27" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part28" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part29" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part30" class="collision"/>
+      <geom type="mesh" mesh="O02@0010@00003_part31" class="collision"/>
+    </body>
+  </worldbody>
+</mujoco>
