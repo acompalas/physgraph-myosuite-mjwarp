@@ -49,6 +49,7 @@ pip install mujoco==3.12.0
 pip install pytorch_kinematics
 pip install rl_games  # NOT pinned -- 1.6.1 requires Python <3.11, incompatible with this env's 3.11
 pip install omegaconf
+pip install dm-tree
 
 echo "== [6/6] mujoco-warp (GPU-parallel MuJoCo, google-deepmind/mujoco_warp) =="
 # CONFIRMED WORKING on the pod: real PyPI package, requires an NVIDIA GPU
