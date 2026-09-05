@@ -87,6 +87,14 @@ def quat_conjugate(q):
     return torch.cat([q[..., 0:1], -q[..., 1:]], dim=-1)
 
 
+def quat_to_angle(q):
+    """Quaternion [w,x,y,z] -> rotation angle (magnitude only, radians).
+    Matches PhysGraph's quat_to_angle_axis(...)[0] usage in
+    compute_imitation_reward (only the angle component is used there)."""
+    w = q[..., 0].clamp(-1, 1)
+    return 2 * torch.acos(w.abs())  # abs() avoids the double-cover sign ambiguity
+
+
 class MyoHandPourEnv:
     def __init__(self, num_envs, device="cuda:0", max_episode_length=None, headless=True):
         self.num_envs = num_envs
@@ -138,6 +146,29 @@ class MyoHandPourEnv:
         self.body_ids = np.array([mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, n) for n in self.body_names])
         self.src_adr = self._joint_qpos_adr("src_O02@0015@00020_free")
         self.dst_adr = self._joint_qpos_adr("dst_O02@0010@00003_free")
+        self.src_dof_adr = self._joint_dof_adr("src_O02@0015@00020_free")
+
+        # reuse our own already-built, tested weight_idx (myohand_def.py,
+        # matches PhysGraph's DexHand.weight_idx convention exactly)
+        import sys
+        sys.path.insert(0, os.path.join(repo_root, "scripts/retargeting"))
+        from myohand_def import MyoHandR
+        self.weight_idx = MyoHandR().weight_idx
+
+        # finite-difference velocity approximation for per-body
+        # positions (joints_vel in PhysGraph's reward) -- real MuJoCo
+        # per-body velocity (cvel) has a specific 6D com-based
+        # convention not yet verified for mujoco_warp, deferred
+        self.prev_body_xpos = None
+
+        dexhand = MyoHandR()
+        # real target joint positions, in OUR body_names[1:] order
+        # (excluding wrist), matching PhysGraph's pack_data flattening
+        # logic exactly -- these are the REAL human MANO joint targets,
+        # not our own retargeted opt_dof_pos values
+        mano_joints = self.rh_demo["mano_joints"]
+        target_joints_list = [mano_joints[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
+        self.demo_target_joints_pos = torch.stack(target_joints_list, dim=1).to(device=self.device, dtype=torch.float32)
 
         self.progress_buf = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.success_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
@@ -261,6 +292,158 @@ class MyoHandPourEnv:
         obs = torch.cat([proprio, privileged, future_target], dim=-1)
         return {"obs": {"obs": obs}}
 
+    def _compute_reward(self):
+        """Faithful (partial) port of PhysGraph's compute_imitation_reward
+        (physgraph_envs/lib/envs/tasks/dexhandmanip_sh.py). Same reward
+        terms/weights and failed_execute/succeeded logic, EXCEPT:
+        - tip_force/tips_distance/tip_contact_state (contact-force reward
+          + its failure check) are OMITTED -- needs mujoco_warp's Contact
+          structure, not yet explored/verified.
+        - power/wrist_power OMITTED -- needs actuator-force fields not yet
+          confirmed to exist.
+        - joints_vel APPROXIMATED via finite-difference of body xpos
+          across steps, not MuJoCo's real cvel (6D com-based convention,
+          not yet verified for mujoco_warp).
+        - scale_factor fixed at 1.0 (no tightening curriculum yet -- see
+          project notes: this is deferred, not a phase-separated
+          curriculum PhysGraph itself doesn't have either).
+        """
+        mjw.forward(self.model, self.data)  # ensure xpos/xquat are fresh
+
+        qpos = wp.to_torch(self.data.qpos)
+        qvel = wp.to_torch(self.data.qvel)
+        xpos = wp.to_torch(self.data.xpos)  # (nworld, nbody, 3)
+
+        cur_idx = self.progress_buf
+        scale_factor = 1.0
+
+        # === current sim state ===
+        current_eef_pos = qpos[:, self.root_adr:self.root_adr + 3]
+        current_eef_quat = qpos[:, self.root_adr + 3:self.root_adr + 7]
+        current_eef_vel = qvel[:, self.root_dof_adr:self.root_dof_adr + 3]
+        current_eef_ang_vel = qvel[:, self.root_dof_adr + 3:self.root_dof_adr + 6]
+
+        joints_pos = xpos[:, self.body_ids[1:], :]  # exclude wrist (index 0)
+        if self.prev_body_xpos is None:
+            joints_vel = torch.zeros_like(joints_pos)
+        else:
+            joints_vel = (joints_pos - self.prev_body_xpos) / self.dt
+        self.prev_body_xpos = joints_pos.clone()
+
+        current_dof_vel = qvel[:, self.dof_veladrs]
+
+        current_obj_pos = qpos[:, self.src_adr:self.src_adr + 3]
+        current_obj_quat = qpos[:, self.src_adr + 3:self.src_adr + 7]
+        current_obj_vel = qvel[:, self.src_dof_adr:self.src_dof_adr + 3]
+        current_obj_ang_vel = qvel[:, self.src_dof_adr + 3:self.src_dof_adr + 6]
+
+        # === target state (current frame, NOT the observation's lookahead) ===
+        target_eef_pos = self.demo_opt_wrist_pos[cur_idx]
+        target_eef_quat = aa_to_quat(self.demo_opt_wrist_rot[cur_idx])
+        target_joints_pos = self.demo_target_joints_pos[cur_idx]
+        target_obj_pos = self.demo_src_obj_traj[cur_idx, :3, 3]
+        target_obj_quat = rotmat_to_quat(self.demo_src_obj_traj[cur_idx, :3, :3])
+        # velocities: finite-difference of the demo trajectory itself
+        next_idx = torch.clamp(cur_idx + 1, max=self.seq_len - 1)
+        target_eef_vel = (self.demo_opt_wrist_pos[next_idx] - target_eef_pos) / self.dt
+        target_eef_ang_vel = torch.zeros_like(target_eef_vel)  # angular vel approx omitted for now
+        target_joints_vel = (self.demo_target_joints_pos[next_idx] - target_joints_pos) / self.dt
+        target_obj_vel = (self.demo_src_obj_traj[next_idx, :3, 3] - target_obj_pos) / self.dt
+        target_obj_ang_vel = torch.zeros_like(target_obj_vel)
+
+        # === diffs ===
+        diff_eef_pos_dist = torch.norm(target_eef_pos - current_eef_pos, dim=-1)
+        diff_eef_vel = target_eef_vel - current_eef_vel
+        diff_eef_ang_vel = target_eef_ang_vel - current_eef_ang_vel
+
+        diff_joints_pos_dist = torch.norm(target_joints_pos - joints_pos, dim=-1)  # (num_envs, 20)
+
+        def tip_dist(key):
+            idx = [k - 1 for k in self.weight_idx[key]]
+            return diff_joints_pos_dist[:, idx].mean(dim=-1)
+
+        diff_thumb_tip_pos_dist = tip_dist("thumb_tip")
+        diff_index_tip_pos_dist = tip_dist("index_tip")
+        diff_middle_tip_pos_dist = tip_dist("middle_tip")
+        diff_ring_tip_pos_dist = tip_dist("ring_tip")
+        diff_pinky_tip_pos_dist = tip_dist("pinky_tip")
+        diff_level_1_pos_dist = tip_dist("level_1_joints")
+        diff_level_2_pos_dist = tip_dist("level_2_joints")
+
+        diff_joints_vel = target_joints_vel - joints_vel
+
+        reward_eef_pos = torch.exp(-40 * diff_eef_pos_dist)
+        reward_thumb_tip_pos = torch.exp(-100 * diff_thumb_tip_pos_dist)
+        reward_index_tip_pos = torch.exp(-90 * diff_index_tip_pos_dist)
+        reward_middle_tip_pos = torch.exp(-80 * diff_middle_tip_pos_dist)
+        reward_pinky_tip_pos = torch.exp(-60 * diff_pinky_tip_pos_dist)
+        reward_ring_tip_pos = torch.exp(-60 * diff_ring_tip_pos_dist)
+        reward_level_1_pos = torch.exp(-50 * diff_level_1_pos_dist)
+        reward_level_2_pos = torch.exp(-40 * diff_level_2_pos_dist)
+
+        reward_eef_vel = torch.exp(-1 * diff_eef_vel.abs().mean(dim=-1))
+        reward_eef_ang_vel = torch.exp(-1 * diff_eef_ang_vel.abs().mean(dim=-1))
+        reward_joints_vel = torch.exp(-1 * diff_joints_vel.abs().mean(dim=-1).mean(-1))
+
+        diff_eef_rot = quat_mul(target_eef_quat, quat_conjugate(current_eef_quat))
+        diff_eef_rot_angle = quat_to_angle(diff_eef_rot)
+        reward_eef_rot = torch.exp(-1 * diff_eef_rot_angle.abs())
+
+        diff_obj_pos_dist = torch.norm(target_obj_pos - current_obj_pos, dim=-1)
+        reward_obj_pos = torch.exp(-80 * diff_obj_pos_dist)
+
+        diff_obj_rot = quat_mul(target_obj_quat, quat_conjugate(current_obj_quat))
+        diff_obj_rot_angle = quat_to_angle(diff_obj_rot)
+        reward_obj_rot = torch.exp(-3 * diff_obj_rot_angle.abs())
+
+        diff_obj_vel = target_obj_vel - current_obj_vel
+        reward_obj_vel = torch.exp(-1 * diff_obj_vel.abs().mean(dim=-1))
+        diff_obj_ang_vel = target_obj_ang_vel - current_obj_ang_vel
+        reward_obj_ang_vel = torch.exp(-1 * diff_obj_ang_vel.abs().mean(dim=-1))
+
+        error_buf = (
+            (torch.norm(current_eef_vel, dim=-1) > 100)
+            | (torch.norm(current_eef_ang_vel, dim=-1) > 200)
+            | (torch.norm(joints_vel, dim=-1).mean(-1) > 100)
+            | (torch.abs(current_dof_vel).mean(-1) > 200)
+            | (torch.norm(current_obj_vel, dim=-1) > 100)
+            | (torch.norm(current_obj_ang_vel, dim=-1) > 200)
+        )
+        failed_execute = (
+            (
+                (diff_obj_pos_dist > 0.02 / 0.343 * scale_factor ** 3)
+                | (diff_thumb_tip_pos_dist > 0.04 / 0.7 * scale_factor)
+                | (diff_index_tip_pos_dist > 0.045 / 0.7 * scale_factor)
+                | (diff_middle_tip_pos_dist > 0.05 / 0.7 * scale_factor)
+                | (diff_pinky_tip_pos_dist > 0.06 / 0.7 * scale_factor)
+                | (diff_ring_tip_pos_dist > 0.06 / 0.7 * scale_factor)
+                | (diff_level_1_pos_dist > 0.07 / 0.7 * scale_factor)
+                | (diff_level_2_pos_dist > 0.08 / 0.7 * scale_factor)
+                | (diff_obj_rot_angle.abs() / np.pi * 180 > 30 / 0.343 * scale_factor ** 3)
+            )
+            & (self.progress_buf >= 8)
+        ) | error_buf
+
+        reward = (
+            0.1 * reward_eef_pos + 0.6 * reward_eef_rot
+            + 0.9 * reward_thumb_tip_pos + 0.8 * reward_index_tip_pos
+            + 0.75 * reward_middle_tip_pos + 0.6 * reward_pinky_tip_pos
+            + 0.6 * reward_ring_tip_pos + 0.5 * reward_level_1_pos
+            + 0.3 * reward_level_2_pos + 5.0 * reward_obj_pos
+            + 1.0 * reward_obj_rot + 0.1 * reward_eef_vel
+            + 0.05 * reward_eef_ang_vel + 0.1 * reward_joints_vel
+            + 0.1 * reward_obj_vel + 0.1 * reward_obj_ang_vel
+        )
+
+        succeeded = (self.progress_buf + 1 + 3 >= self.max_episode_length) & ~failed_execute
+        dones = (succeeded | failed_execute).float()
+
+        self.success_buf_ = succeeded
+        self.failure_buf_ = failed_execute
+        self.error_buf_ = error_buf
+
+        return reward, dones
+
     def step(self, action):
         action = torch.clamp(action, -1.0, 1.0)
 
@@ -294,8 +477,7 @@ class MyoHandPourEnv:
         mjw.step(self.model, self.data)
 
         self.progress_buf += 1
-        dones = (self.progress_buf >= self.max_episode_length).float()
-        rewards = torch.zeros(self.num_envs, device=self.device)  # real imitation reward next
+        rewards, dones = self._compute_reward()
         obs = self._compute_obs()
         infos = {}
         return obs, rewards, dones, infos
