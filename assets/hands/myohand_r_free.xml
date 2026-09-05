@@ -1,5 +1,5 @@
 <mujoco model="myohand_r_from_myoarm_r">
-  <compiler angle="radian" meshdir="/home/anderson/physgraph-local/physgraph-myosuite-mjwarp/third_party/myo_sim/myo_sim/models/" texturedir="/home/anderson/physgraph-local/physgraph-myosuite-mjwarp/third_party/myo_sim/myo_sim/models/"/>
+  <compiler angle="radian" meshdir="../../third_party/myo_sim/myo_sim/models/" texturedir="../../third_party/myo_sim/myo_sim/models/"/>
 
   <default>
     <geom contype="0" conaffinity="0"/>
