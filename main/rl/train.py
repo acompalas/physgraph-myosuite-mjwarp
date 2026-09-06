@@ -53,7 +53,14 @@ class _FixedRunningMeanStdObs(_nn.Module):
         })
 
     def forward(self, input: typing.Dict[str, _torch.Tensor], denorm: bool = False):
-        res = {k: self.running_mean_std[k](v, denorm) for k, v in input.items()}
+        # TorchScript forbids dynamic (non-literal) indexing into a
+        # ModuleDict, only enumeration -- so iterate self.running_mean_std
+        # directly (always legal) and use the key to index into `input`
+        # instead (a plain Dict[str, Tensor], where dynamic indexing IS
+        # fine, since all values share one type)
+        res: typing.Dict[str, _torch.Tensor] = {}
+        for k, module in self.running_mean_std.items():
+            res[k] = module(input[k], denorm)
         return res
 
 
