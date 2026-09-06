@@ -1,12 +1,17 @@
-# Simplified from PhysGraph's ResDexHandPPO.yaml -- that config targets a
-# dict-based multi-modal observation with a pretrained-checkpoint residual
-# architecture (bimanual transformer network), neither of which applies
-# here: our observation is a simple flat vector, and per Runfa's own
-# direction the immediate goal is just proving basic training works on a
-# fixed trajectory, not replicating the full sophisticated architecture.
-# Uses rl_games' own standard PPO + MLP network instead. PPO hyperparameters
-# below (gamma, tau, learning_rate, horizon_length, etc.) are carried over
-# directly from PhysGraph's own config where they're genuinely reusable.
+# Adapted from PhysGraph's ResDexHandPPO.yaml. Real dict-based multi-modal
+# observation (proprioception/privileged/target streams, bimanual-SHAPED
+# with an inert LH placeholder -- see envs/mjwarp_myohand_env.py), using
+# lib.nn.features.SimpleFeatureFusion/Identity for feature extraction
+# (real, unmodified PhysGraph utility classes) instead of the full
+# graph-transformer network (network_builder_transformer_bih_graph_
+# improve_correct.py), which is hardcoded to a different embodiment's
+# exact dof/body counts plus real BPS object-shape encoding we don't
+# compute yet -- adopting that network faithfully is a deliberate,
+# separate future milestone. Dropped: the pretrained-checkpoint residual
+# architecture (no base policy to load from, training from scratch).
+# PPO hyperparameters below (gamma, tau, learning_rate, horizon_length,
+# etc.) are carried over directly from PhysGraph's own config where
+# they're genuinely reusable.
 params:
   seed: ${...seed}
   algo:
@@ -15,29 +20,13 @@ params:
   model:
     name: continuous_a2c_logstd
 
+  # dict-observation network -- real SimpleFeatureFusion/Identity feature
+  # extraction (lib/nn/features/) feeding a standard actor-critic head,
+  # matching PhysGraph's own ResBiHDictObsBuilder pattern but with our
+  # MyoHand dimensions instead of their hardcoded ArtiMANO ones. See
+  # lib/rl/network_builder_myohand_simple.py for the full rationale.
   network:
-    name: actor_critic
-    separate: False
-
-    space:
-      continuous:
-        mu_activation: None
-        sigma_activation: None
-        mu_init:
-          name: default
-        sigma_init:
-          name: const_initializer
-          val: 0
-        fixed_sigma: True
-
-    mlp:
-      units: [256, 128, 64]
-      activation: elu
-      d2rl: False
-      initializer:
-        name: default
-      regularizer:
-        name: None
+    name: myohand_simple_dict_obs_actor_critic
 
   load_checkpoint: False
   load_path:

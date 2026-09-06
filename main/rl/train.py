@@ -80,9 +80,11 @@ def launch_rlg_hydra(cfg: DictConfig):
     from lib.rl.runner import Runner
     from lib.rl.models import ModelA2CContinuousLogStd, SepModelA2CContinuousLogStd
     from rl_games.algos_torch.model_builder import register_network, register_model
+    from lib.rl.network_builder_myohand_simple import SimpleDictObsBuilder
 
     register_model("my_continuous_a2c_logstd", ModelA2CContinuousLogStd)
     register_model("sep_my_continuous_a2c_logstd", SepModelA2CContinuousLogStd)
+    register_network("myohand_simple_dict_obs_actor_critic", SimpleDictObsBuilder)
 
     if cfg.checkpoint:
         if type(cfg.checkpoint) == str:

@@ -190,14 +190,22 @@ class MyoHandPourEnv:
         # via mj_model.nu + actuator names, NOT simple position servos)
         act_dim = 9 + self.n_muscles
         self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(act_dim,), dtype=np.float32)
-        obs_dim = (23 * 3 + 13) + (23 + 3 + 4) + (3 + 4 + 23)
+        # bimanual-SHAPED (RH real + LH inert-zero, same width each),
+        # matching PhysGraph's own per-modality concatenated-tensor
+        # convention -- see _compute_obs() for the full rationale
+        rh_proprio_dim = 23 * 3 + 13   # dof_pos/cos/sin + wrist pos/quat/vel/angvel
+        rh_privileged_dim = 23 + 3 + 4  # dof_vel + obj_pos_rel + obj_quat
+        rh_target_dim = 3 + 4 + 23      # delta_wrist_pos/quat + delta_dof_pos
         self.observation_space = gym.spaces.Dict({
-            "obs": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
-        })  # dict observation space (single key) -- lib/rl/base.py's play_steps
-        # unconditionally does `for k, v in self.obs["obs"].items()`, so BOTH
-        # the runtime obs dict AND the declared space must agree it's a Dict,
-        # even with just one entry -- this lets rl_games correctly unpack it
-        # to a plain tensor before the actor_critic MLP sees it
+            "proprioception": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(rh_proprio_dim * 2,), dtype=np.float32),
+            "privileged": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(rh_privileged_dim * 2,), dtype=np.float32),
+            "target": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(rh_target_dim * 2,), dtype=np.float32),
+        })  # lib/rl/base.py's play_steps unconditionally does
+        # `for k, v in self.obs["obs"].items()`, so the runtime obs dict
+        # AND the declared space must both be genuine multi-key dicts --
+        # these 3 keys feed lib.nn.features.SimpleFeatureFusion (real,
+        # unmodified PhysGraph utility class) via matching Identity
+        # extractors in the rl_train config
 
     def _to_tensor(self, x):
         return torch.tensor(np.array(x), device=self.device, dtype=torch.float32)
@@ -288,6 +296,22 @@ class MyoHandPourEnv:
         return self._compute_obs(), done_env_ids
 
     def _compute_obs(self):
+        """Bimanual-SHAPED observation (per stream: [rh_real, lh_inert]
+        concatenated), matching PhysGraph's own convention exactly (its
+        transformer network internally slices obs['proprioception'] into
+        r_prop/l_prop, i.e. it also expects one concatenated tensor per
+        modality covering both hands). LH is currently fully inert (no
+        left hand rendered/actuated in this env -- see project notes'
+        deferred bimanual milestone) -- its stream is a static zero
+        tensor of the SAME width RH uses, so the shape is genuinely
+        bimanual-ready even though only RH carries real data today.
+        Real per-hand streams built with SimpleFeatureFusion/Identity
+        (lib/nn/features/), NOT PhysGraph's bimanual transformer network
+        (network_builder_transformer_bih_graph_improve_correct.py) --
+        that file is hardcoded to a DIFFERENT embodiment's exact dof/body
+        counts (22/27, likely ArtiMANO) plus real BPS object-shape
+        encoding we don't compute -- adopting it faithfully is a real,
+        separate future task once a second hand does real work."""
         qpos = wp.to_torch(self.data.qpos)
         qvel = wp.to_torch(self.data.qvel)
 
@@ -298,14 +322,14 @@ class MyoHandPourEnv:
         wrist_linvel = qvel[:, self.root_dof_adr:self.root_dof_adr + 3]
         wrist_angvel = qvel[:, self.root_dof_adr + 3:self.root_dof_adr + 6]
 
-        proprio = torch.cat([
+        rh_proprio = torch.cat([
             dof_pos, torch.cos(dof_pos), torch.sin(dof_pos),
             torch.zeros_like(wrist_pos), wrist_quat, wrist_linvel, wrist_angvel,
         ], dim=-1)
 
         src_pos = qpos[:, self.src_adr:self.src_adr + 3]
         src_quat = qpos[:, self.src_adr + 3:self.src_adr + 7]
-        privileged = torch.cat([dof_vel, src_pos - wrist_pos, src_quat], dim=-1)
+        rh_privileged = torch.cat([dof_vel, src_pos - wrist_pos, src_quat], dim=-1)
 
         next_idx = torch.clamp(self.progress_buf + 1, max=self.seq_len - 1)
         target_wrist_pos = self.demo_opt_wrist_pos[next_idx]
@@ -317,10 +341,17 @@ class MyoHandPourEnv:
         delta_wrist_quat = quat_mul(wrist_quat, quat_conjugate(target_wrist_quat))
         delta_dof_pos = target_dof_pos - dof_pos
 
-        future_target = torch.cat([delta_wrist_pos, delta_wrist_quat, delta_dof_pos], dim=-1)
+        rh_target = torch.cat([delta_wrist_pos, delta_wrist_quat, delta_dof_pos], dim=-1)
 
-        obs = torch.cat([proprio, privileged, future_target], dim=-1)
-        return {"obs": {"obs": obs}}  # dict observation, single key -- see observation_space comment in __init__
+        lh_proprio = torch.zeros_like(rh_proprio)
+        lh_privileged = torch.zeros_like(rh_privileged)
+        lh_target = torch.zeros_like(rh_target)
+
+        proprioception = torch.cat([rh_proprio, lh_proprio], dim=-1)
+        privileged = torch.cat([rh_privileged, lh_privileged], dim=-1)
+        target = torch.cat([rh_target, lh_target], dim=-1)
+
+        return {"obs": {"proprioception": proprioception, "privileged": privileged, "target": target}}
 
     def _compute_reward(self):
         """Faithful (partial) port of PhysGraph's compute_imitation_reward
