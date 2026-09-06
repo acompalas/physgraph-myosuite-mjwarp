@@ -29,15 +29,35 @@ from omegaconf import DictConfig, OmegaConf
 # at all (rl_games/algos_torch/running_mean_std.py), so torch.jit.script
 # defaults it to plain Tensor instead of Dict[str, Tensor], causing
 # `'Tensor (inferred)' object has no attribute or method 'items'` when
-# scripting a dict-observation network (exactly our case: proprioception/
-# privileged/target). Fix: set the correct annotation on the function
-# object before any torch.jit.script call ever compiles it. This is a
-# genuine upstream library bug, not something in our code or PhysGraph's
-# reused code -- remove this patch if a future rl_games release fixes it.
+# scripting a dict-observation network (exactly our case). Mutating
+# __annotations__ at runtime does NOT fix this -- torch.jit.script
+# re-parses the actual source text, ignoring runtime annotation patches.
+# Real fix: define a properly-annotated subclass (correct annotation in
+# real source, which TorchScript will read correctly), then patch the
+# NAME that rl_games.algos_torch.models actually uses (it did its own
+# `from ... import RunningMeanStdObs`, so patching only the original
+# defining module wouldn't reach that already-bound reference).
 import typing
 import torch as _torch
-from rl_games.algos_torch.running_mean_std import RunningMeanStdObs as _RunningMeanStdObs
-_RunningMeanStdObs.forward.__annotations__["input"] = typing.Dict[str, _torch.Tensor]
+import torch.nn as _nn
+from rl_games.algos_torch.running_mean_std import RunningMeanStd as _RunningMeanStd
+import rl_games.algos_torch.models as _rlg_models
+
+
+class _FixedRunningMeanStdObs(_nn.Module):
+    def __init__(self, insize, epsilon=1e-05, per_channel=False, norm_only=False):
+        assert isinstance(insize, dict)
+        super().__init__()
+        self.running_mean_std = _nn.ModuleDict({
+            k: _RunningMeanStd(v, epsilon, per_channel, norm_only) for k, v in insize.items()
+        })
+
+    def forward(self, input: typing.Dict[str, _torch.Tensor], denorm: bool = False):
+        res = {k: self.running_mean_std[k](v, denorm) for k, v in input.items()}
+        return res
+
+
+_rlg_models.RunningMeanStdObs = _FixedRunningMeanStdObs
 
 import lib
 
