@@ -314,7 +314,7 @@ class MyoHandPourEnv:
         future_target = torch.cat([delta_wrist_pos, delta_wrist_quat, delta_dof_pos], dim=-1)
 
         obs = torch.cat([proprio, privileged, future_target], dim=-1)
-        return {"obs": {"obs": obs}}
+        return {"obs": obs}  # single flat tensor, matching the plain actor_critic network (not the multi-modal dict case)
 
     def _compute_reward(self):
         """Faithful (partial) port of PhysGraph's compute_imitation_reward
