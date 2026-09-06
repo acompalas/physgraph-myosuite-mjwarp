@@ -68,7 +68,13 @@ class SimpleHandPolicy(A2CBuilder.Network):
         action_mu = self.action_mu_head(z)
         sigma = self.sigma
         value = self.value_head(torch.cat([z, obs["privileged"]], dim=-1))
-        return (action_mu, sigma, value, None, None)
+        # 4-tuple, matching the standard ModelA2CContinuousLogStd wrapper
+        # we use (mu, logstd, value, states). PhysGraph's own real network
+        # returns a 5-tuple -- that extra trailing value is specific to
+        # their OWN residual-checkpoint-blending model wrapper
+        # (my_continuous_a2c_logstd variant), which we deliberately don'''t
+        # use here (no pretrained base checkpoint to blend with).
+        return action_mu, sigma, value, None
 
 
 class SimpleDictObsBuilder(A2CBuilder):
