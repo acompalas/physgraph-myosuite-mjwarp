@@ -12,6 +12,12 @@ Uses PhysGraph's own (non-BiH) model classes -- ModelA2CContinuousLogStd
 network builder, since our task is single-hand with a simple flat
 observation vector, not the multi-modal dict observation the BiH
 network was built for."""
+import os
+import sys
+warnings_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if warnings_repo_root not in sys.path:
+    sys.path.insert(0, warnings_repo_root)
+
 import warnings
 warnings.filterwarnings("ignore")
 

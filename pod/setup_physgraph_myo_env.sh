@@ -51,6 +51,7 @@ pip install rl_games  # NOT pinned -- 1.6.1 requires Python <3.11, incompatible 
 pip install omegaconf
 pip install dm-tree
 pip install gym
+pip install hydra-core
 
 echo "== [6/6] mujoco-warp (GPU-parallel MuJoCo, google-deepmind/mujoco_warp) =="
 # CONFIRMED WORKING on the pod: real PyPI package, requires an NVIDIA GPU
