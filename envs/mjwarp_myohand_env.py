@@ -191,7 +191,13 @@ class MyoHandPourEnv:
         act_dim = 9 + self.n_muscles
         self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(act_dim,), dtype=np.float32)
         obs_dim = (23 * 3 + 13) + (23 + 3 + 4) + (3 + 4 + 23)
-        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
+        self.observation_space = gym.spaces.Dict({
+            "obs": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
+        })  # dict observation space (single key) -- lib/rl/base.py's play_steps
+        # unconditionally does `for k, v in self.obs["obs"].items()`, so BOTH
+        # the runtime obs dict AND the declared space must agree it's a Dict,
+        # even with just one entry -- this lets rl_games correctly unpack it
+        # to a plain tensor before the actor_critic MLP sees it
 
     def _to_tensor(self, x):
         return torch.tensor(np.array(x), device=self.device, dtype=torch.float32)
@@ -314,7 +320,7 @@ class MyoHandPourEnv:
         future_target = torch.cat([delta_wrist_pos, delta_wrist_quat, delta_dof_pos], dim=-1)
 
         obs = torch.cat([proprio, privileged, future_target], dim=-1)
-        return {"obs": obs}  # single flat tensor, matching the plain actor_critic network (not the multi-modal dict case)
+        return {"obs": {"obs": obs}}  # dict observation, single key -- see observation_space comment in __init__
 
     def _compute_reward(self):
         """Faithful (partial) port of PhysGraph's compute_imitation_reward
