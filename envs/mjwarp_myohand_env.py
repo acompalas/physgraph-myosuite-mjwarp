@@ -226,39 +226,60 @@ class MyoHandPourEnv:
     def get_number_of_agents(self):
         return self.num_envs
 
-    def reset(self):
+    def reset_idx(self, env_ids):
+        """Reset ONLY the specified environments (real PhysGraph pattern --
+        dexhandmanip_bih.py's reset_idx/reset_done -- lets other envs keep
+        running asynchronously rather than resetting the whole batch)."""
+        if len(env_ids) == 0:
+            return
+
         qpos = wp.to_torch(self.data.qpos)
         qvel = wp.to_torch(self.data.qvel)
 
         opt_wrist_pos0 = self.demo_opt_wrist_pos[0]
         opt_wrist_rot0 = self.demo_opt_wrist_rot[0]
         opt_dof_pos0 = self.demo_opt_dof_pos[0]
-        src_pose0 = self.demo_src_obj_traj[0]  # 4x4, real captured frame-0 pose
-        dst_pose0 = self._to_tensor(self.lh_demo["obj_trajectory"][0])  # 4x4, static
+        src_pose0 = self.demo_src_obj_traj[0]
+        dst_pose0 = self._to_tensor(self.lh_demo["obj_trajectory"][0])
 
-        qpos[:, self.root_adr:self.root_adr + 3] = opt_wrist_pos0
-        qpos[:, self.root_adr + 3:self.root_adr + 7] = aa_to_quat(opt_wrist_rot0[None])[0]
-        qpos[:, self.dof_adrs] = opt_dof_pos0
+        qpos[env_ids, self.root_adr:self.root_adr + 3] = opt_wrist_pos0
+        qpos[env_ids, self.root_adr + 3:self.root_adr + 7] = aa_to_quat(opt_wrist_rot0[None])[0]
+        qpos[env_ids[:, None], self.dof_adrs] = opt_dof_pos0
 
-        qpos[:, self.src_adr:self.src_adr + 3] = src_pose0[:3, 3]
-        qpos[:, self.src_adr + 3:self.src_adr + 7] = rotmat_to_quat(src_pose0[:3, :3][None])[0]
+        qpos[env_ids, self.src_adr:self.src_adr + 3] = src_pose0[:3, 3]
+        qpos[env_ids, self.src_adr + 3:self.src_adr + 7] = rotmat_to_quat(src_pose0[:3, :3][None])[0]
 
-        qpos[:, self.dst_adr:self.dst_adr + 3] = dst_pose0[:3, 3]
-        qpos[:, self.dst_adr + 3:self.dst_adr + 7] = rotmat_to_quat(dst_pose0[:3, :3][None])[0]
+        qpos[env_ids, self.dst_adr:self.dst_adr + 3] = dst_pose0[:3, 3]
+        qpos[env_ids, self.dst_adr + 3:self.dst_adr + 7] = rotmat_to_quat(dst_pose0[:3, :3][None])[0]
 
-        qvel.zero_()
+        qvel[env_ids] = 0.0
+
+        self.progress_buf[env_ids] = 0
+        self.success_buf_[env_ids] = False
+        self.failure_buf_[env_ids] = False
+        self.error_buf_[env_ids] = False
+        self.pos_error_integral[env_ids] = 0.0
+        self.prev_pos_error[env_ids] = 0.0
+        self.rot_error_integral[env_ids] = 0.0
+        self.prev_rot_error[env_ids] = 0.0
+
         mjw.forward(self.model, self.data)
 
-        self.progress_buf.zero_()
-        self.success_buf_.zero_()
-        self.failure_buf_.zero_()
-        self.error_buf_.zero_()
-        self.pos_error_integral.zero_()
-        self.prev_pos_error.zero_()
-        self.rot_error_integral.zero_()
-        self.prev_rot_error.zero_()
-
+    def reset(self):
+        """Full reset -- all envs. Used once at the very start of training."""
+        all_env_ids = torch.arange(self.num_envs, device=self.device)
+        self.reset_idx(all_env_ids)
         return self._compute_obs()
+
+    def reset_done(self):
+        """Real PhysGraph interface method (dexhandmanip_bih.py:1494),
+        called directly by lib/rl/base.py's play_steps -- resets only the
+        environments that finished their episode, returns (obs, done_ids)."""
+        reset_buf = self.success_buf_ | self.failure_buf_
+        done_env_ids = reset_buf.nonzero(as_tuple=False).flatten()
+        if len(done_env_ids) > 0:
+            self.reset_idx(done_env_ids)
+        return self._compute_obs(), done_env_ids
 
     def _compute_obs(self):
         qpos = wp.to_torch(self.data.qpos)
