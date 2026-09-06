@@ -60,6 +60,10 @@ class SimpleHandPolicy(A2CBuilder.Network):
         self.sigma = nn.Parameter(-torch.ones(actions_num, dtype=torch.float), requires_grad=True)
 
     def forward(self, obs, pre_action=None):
+        # rl_games wraps the actual observation dict one level deeper,
+        # alongside training metadata (prev_actions/rnn_states/is_train):
+        # {"obs": <our real proprioception/privileged/target dict>, ...}
+        obs = obs["obs"]
         z = self.feature_fusion(obs)
         action_mu = self.action_mu_head(z)
         sigma = self.sigma
