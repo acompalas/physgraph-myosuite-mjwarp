@@ -24,6 +24,21 @@ warnings.filterwarnings("ignore")
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+# WORKAROUND for a confirmed bug in the installed rl_games (1.6.5):
+# RunningMeanStdObs.forward's `input` parameter has NO type annotation
+# at all (rl_games/algos_torch/running_mean_std.py), so torch.jit.script
+# defaults it to plain Tensor instead of Dict[str, Tensor], causing
+# `'Tensor (inferred)' object has no attribute or method 'items'` when
+# scripting a dict-observation network (exactly our case: proprioception/
+# privileged/target). Fix: set the correct annotation on the function
+# object before any torch.jit.script call ever compiles it. This is a
+# genuine upstream library bug, not something in our code or PhysGraph's
+# reused code -- remove this patch if a future rl_games release fixes it.
+import typing
+import torch as _torch
+from rl_games.algos_torch.running_mean_std import RunningMeanStdObs as _RunningMeanStdObs
+_RunningMeanStdObs.forward.__annotations__["input"] = typing.Dict[str, _torch.Tensor]
+
 import lib
 
 
