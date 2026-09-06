@@ -53,6 +53,7 @@ pip install dm-tree
 pip install gym
 pip install hydra-core
 pip install wandb
+pip install h5py
 
 echo "== [6/6] mujoco-warp (GPU-parallel MuJoCo, google-deepmind/mujoco_warp) =="
 # CONFIRMED WORKING on the pod: real PyPI package, requires an NVIDIA GPU
