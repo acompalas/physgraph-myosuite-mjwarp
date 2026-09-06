@@ -174,6 +174,7 @@ class MyoHandPourEnv:
         self.success_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
         self.failure_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
         self.error_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        self.total_rewards = torch.zeros(num_envs, device=device)
 
         # PID gains, ArtiMANO reference values (physgraph_envs/lib/envs/
         # dexhands/artimano_real.py) -- NOT yet tuned for MyoHand
@@ -272,6 +273,7 @@ class MyoHandPourEnv:
         self.success_buf_[env_ids] = False
         self.failure_buf_[env_ids] = False
         self.error_buf_[env_ids] = False
+        self.total_rewards[env_ids] = 0.0
         self.pos_error_integral[env_ids] = 0.0
         self.prev_pos_error[env_ids] = 0.0
         self.rot_error_integral[env_ids] = 0.0
@@ -502,8 +504,51 @@ class MyoHandPourEnv:
         self.success_buf_ = succeeded
         self.failure_buf_ = failed_execute
         self.error_buf_ = error_buf
+        self.total_rewards += reward
 
-        return reward, dones
+        # infos dict -- lib/rl/base.py's play_steps reads these exact keys
+        # (real PhysGraph code, confirmed by tracing what it accesses):
+        # diff_metrics (per-frame tracking-error diagnostics), reward_dict
+        # (individual reward term breakdown), time_outs (episode ended by
+        # reaching the length limit, for PPO value-bootstrapping -- same
+        # condition as `succeeded` here, since our fixed-length task makes
+        # them coincide exactly), total_rewards/total_steps (cumulative
+        # episode trackers), error_masks (same as error_buf).
+        # diff_ft (fingertip-force tracking) is a zero placeholder -- the
+        # real contact-force reward/diff is a deferred future piece (see
+        # project notes), not yet computed.
+        infos = {
+            "diff_metrics": {
+                "diff_obj_pos": diff_obj_pos_dist,
+                "diff_obj_rot": diff_obj_rot_angle,
+                "diff_joints": diff_joints_pos_dist.mean(dim=-1),
+                "diff_ft": torch.zeros_like(diff_obj_pos_dist),
+            },
+            "reward_dict": {
+                "reward_eef_pos": reward_eef_pos,
+                "reward_eef_rot": reward_eef_rot,
+                "reward_thumb_tip_pos": reward_thumb_tip_pos,
+                "reward_index_tip_pos": reward_index_tip_pos,
+                "reward_middle_tip_pos": reward_middle_tip_pos,
+                "reward_pinky_tip_pos": reward_pinky_tip_pos,
+                "reward_ring_tip_pos": reward_ring_tip_pos,
+                "reward_level_1_pos": reward_level_1_pos,
+                "reward_level_2_pos": reward_level_2_pos,
+                "reward_obj_pos": reward_obj_pos,
+                "reward_obj_rot": reward_obj_rot,
+                "reward_eef_vel": reward_eef_vel,
+                "reward_eef_ang_vel": reward_eef_ang_vel,
+                "reward_joints_vel": reward_joints_vel,
+                "reward_obj_vel": reward_obj_vel,
+                "reward_obj_ang_vel": reward_obj_ang_vel,
+            },
+            "time_outs": succeeded,
+            "total_rewards": self.total_rewards,
+            "total_steps": self.progress_buf,
+            "error_masks": error_buf,
+        }
+
+        return reward, dones, infos
 
     def step(self, action):
         action = torch.clamp(action, -1.0, 1.0)
@@ -540,9 +585,8 @@ class MyoHandPourEnv:
         mjw.step(self.model, self.data)
 
         self.progress_buf += 1
-        rewards, dones = self._compute_reward()
+        rewards, dones, infos = self._compute_reward()
         obs = self._compute_obs()
-        infos = {}
         return obs, rewards, dones, infos
 
     @property
