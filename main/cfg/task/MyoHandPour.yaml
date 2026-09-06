@@ -1,0 +1,37 @@
+# Simplified from PhysGraph's task/ResDexHand.yaml. Removed: the entire
+# `sim:`/`task:` (domain randomization) sections, which are PhysX/IsaacGym-
+# specific and don't apply to mujoco-warp (our sim parameters live in the
+# MJCF itself). Hardcoded ndof=23/nbody=21 instead of using the ${ndof:...}/
+# ${nbody:...} resolvers, since those call the real DexHandFactory (IsaacGym-
+# coupled, and doesn't know MyoHand) -- see project notes.
+name: MyoHandPour
+
+seed: ${..seed}
+
+env:
+  numEnvs: ${resolve_default:64,${...num_envs}}
+
+  episodeLength: 631  # matches our demo's real seq_len (1292e@0)
+  training: ${if:${...test},False,True}
+
+  usePIDControl: ${...usePIDControl}
+
+  rolloutStateInit: ${resolve_default:False,${...rolloutStateInit}}
+  randomStateInit: ${resolve_default:False,${...randomStateInit}}
+
+  obsFutureLength: 1  # our K=1 simplification, see project notes
+
+  clipObservations: 5.0
+  clipActions: 1.0
+
+  tightenMethod: "None"  # no tolerance-tightening curriculum yet
+
+  actionScale: 1.0
+
+  actionsMovingAverage: ${...actionsMovingAverage}
+
+  # 9 (PID wrist pose: 3 pos + 6 rot6d) + 39 (real MyoHand muscle
+  # activations) -- see envs/mjwarp_myohand_env.py
+  numActions: 48
+
+  enableCameraSensors: False

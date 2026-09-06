@@ -1,0 +1,62 @@
+# Ported from PhysGraph's main/cfg/config.yaml. Removed: PhysX/IsaacGym-
+# specific fields not applicable to mujoco-warp (physics_engine, pipeline,
+# num_threads, solver_type, num_subscenes, graphics_device_id), and
+# bimanual-specific fields (bimanual_mode, dexhand, rh/lh_base_model_checkpoint)
+# since our task is single-hand MyoHand only.
+defaults:
+  - task: ???
+  - rl_train: ${find_rl_train_config:${task}}
+  - override hydra/job_logging: disabled
+  - _self_
+
+task_name: ${task.name}
+experiment: ''
+side: 'Local'
+
+num_envs: ''
+rolloutStateInit: False
+randomStateInit: False  # fixed trajectory only for now, per Runfa's direction
+rolloutLen: null
+rolloutBegin: null
+learning_rate: 5e-4
+actionsMovingAverage: 1.0
+usePIDControl: True  # direct wrist pose (matches Runfa's real-hardware preference)
+
+seed: 42
+torch_deterministic: False
+max_iterations: 9999999999999
+early_stop_epochs: 9999999999999
+
+sim_device: 'cuda:0'
+rl_device: 'cuda:0'
+
+test: False
+save_rollouts: False
+save_successful_rollouts_only: True
+num_rollouts_to_save: 20000
+num_rollouts_to_run: 9999999999999
+min_episode_length: 20
+
+checkpoint:
+from_ckpt_epoch:
+sigma: ''
+multi_gpu: False
+
+wandb_activate: False
+wandb_group: ''
+wandb_name: ${rl_train.params.config.name}
+wandb_entity: null
+wandb_project: null
+wandb_tags: []
+wandb_logcode_dir: ''
+
+capture_video: False
+n_parallel_recorders: 8
+n_successful_videos_to_record: 50
+display: False
+headless: True
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .
