@@ -323,7 +323,13 @@ class MyA2CBase(BaseAlgorithm):
         self.truncate_grads = self.config.get("truncate_grads", False)
 
         if isinstance(self.observation_space, gym.spaces.Dict):
-            self.obs_shape = self.observation_space
+            # BUG FIX (not in original PhysGraph file): this branch's real
+            # intent -- confirmed by rl_games/algos_torch/models.py's own
+            # `if isinstance(obs_shape, dict): RunningMeanStdObs(obs_shape)`
+            # check -- needs a PLAIN dict of shapes, not the gym.spaces.Dict
+            # object itself (which fails that isinstance check, since
+            # gym.spaces.Dict is not a subclass of the builtin dict).
+            self.obs_shape = {k: v.shape for k, v in self.observation_space.spaces.items()}
         else:
             self.obs_shape = self.observation_space.shape
 
