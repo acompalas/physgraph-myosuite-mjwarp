@@ -185,7 +185,10 @@ class MyoHandPourEnv:
         self.rot_error_integral = torch.zeros(num_envs, 3, device=device)
         self.prev_rot_error = torch.zeros(num_envs, 3, device=device)
 
-        act_dim = 9 + self.n_dofs_hand
+        self.n_muscles = self.mj_model.nu  # 39, real muscle-tendon actuators
+        # (ctrlrange 0-1, dyntype/gaintype/biastype=muscle -- confirmed
+        # via mj_model.nu + actuator names, NOT simple position servos)
+        act_dim = 9 + self.n_muscles
         self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(act_dim,), dtype=np.float32)
         obs_dim = (23 * 3 + 13) + (23 + 3 + 4) + (3 + 4 + 23)
         self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
@@ -464,7 +467,9 @@ class MyoHandPourEnv:
         wrist_torque = self.Kp_rot * rot_error + self.Ki_rot * self.rot_error_integral + self.Kd_rot * rot_derivative
         self.prev_rot_error = rot_error
 
-        dof_targets = action[:, 9:]  # [-1,1] -- direct per-dof position targets, scaling deferred
+        # muscle activations must be in [0,1] (real ctrlrange) -- map from the
+        # policy's standard [-1,1] action range
+        muscle_activations = (action[:, 9:] + 1.0) / 2.0
 
         qfrc = wp.to_torch(self.data.qfrc_applied)
         qfrc.zero_()
@@ -472,7 +477,7 @@ class MyoHandPourEnv:
         qfrc[:, self.root_dof_adr + 3:self.root_dof_adr + 6] = wrist_torque
 
         ctrl = wp.to_torch(self.data.ctrl)
-        ctrl[:, :] = 0.0  # finger actuator scaling from dof_targets still TODO
+        ctrl[:, :] = muscle_activations
 
         mjw.step(self.model, self.data)
 
