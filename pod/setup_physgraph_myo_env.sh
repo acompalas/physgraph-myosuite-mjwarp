@@ -54,6 +54,8 @@ pip install gym
 pip install hydra-core
 pip install wandb
 pip install h5py
+pip install git+https://github.com/otaheri/chamfer_distance
+pip install git+https://github.com/otaheri/bps_torch  # real BPS object-shape encoding, needed for the full transformer network
 
 echo "== [6/6] mujoco-warp (GPU-parallel MuJoCo, google-deepmind/mujoco_warp) =="
 # CONFIRMED WORKING on the pod: real PyPI package, requires an NVIDIA GPU
