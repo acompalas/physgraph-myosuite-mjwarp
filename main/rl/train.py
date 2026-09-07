@@ -18,11 +18,6 @@ warnings_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abs
 if warnings_repo_root not in sys.path:
     sys.path.insert(0, warnings_repo_root)
 
-import torch
-torch.autograd.set_detect_anomaly(True)  # TEMP DEBUG: pinpoint the exact
-# op producing NaN gradients during the sigma/logstd instability -- remove
-# once root cause is found, this adds real overhead
-
 import warnings
 warnings.filterwarnings("ignore")
 

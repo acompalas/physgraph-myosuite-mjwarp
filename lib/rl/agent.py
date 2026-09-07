@@ -145,15 +145,6 @@ class PPOAgent(MyContinuousA2CBase):
         with torch.cuda.amp.autocast(enabled=self.mixed_precision):
             res_dict = self.model(batch_dict)
             action_log_probs = res_dict["prev_neglogp"]
-
-            # TEMP DEBUG: check every input to the actor loss, plus the
-            # mask, before a_loss is computed
-            import torch as _torch_dbg2
-            print(f"[NaN DEBUG2] cur_mask sum: {cur_mask.sum().item() if cur_mask is not None else 'None'}, "
-                  f"cur_mask numel: {cur_mask.numel() if cur_mask is not None else 'None'}")
-            print(f"[NaN DEBUG2] action_log_probs nan: {_torch_dbg2.isnan(action_log_probs).any().item()}, "
-                  f"old_action_log_probs_batch nan: {_torch_dbg2.isnan(old_action_log_probs_batch).any().item()}, "
-                  f"advantage nan: {_torch_dbg2.isnan(advantage).any().item()}, advantage: {advantage}")
             values = res_dict["values"]
             entropy = res_dict["entropy"]
             mu = res_dict["mus"]
@@ -194,15 +185,6 @@ class PPOAgent(MyContinuousA2CBase):
                 cur_mask,
             )
             a_loss, c_loss, entropy, b_loss = losses[0], losses[1], losses[2], losses[3]
-
-            # TEMP DEBUG: identify exactly which loss term carries NaN,
-            # right before they get summed into the final loss
-            import torch as _torch_dbg
-            for _name, _t in [("a_loss", a_loss), ("c_loss", c_loss), ("entropy", entropy), ("b_loss", b_loss)]:
-                if _torch_dbg.isnan(_t).any():
-                    print(f"[NaN DEBUG] {_name} contains NaN: {_t}")
-            if _torch_dbg.isnan(mu).any() or _torch_dbg.isnan(sigma).any():
-                print(f"[NaN DEBUG] mu nan: {_torch_dbg.isnan(mu).any().item()}, sigma nan: {_torch_dbg.isnan(sigma).any().item()}, sigma: {sigma}")
 
             loss = (
                 a_loss + 0.5 * c_loss * self.critic_coef - entropy * self.entropy_coef + b_loss * self.bounds_loss_coef
