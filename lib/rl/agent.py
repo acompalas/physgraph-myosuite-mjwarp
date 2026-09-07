@@ -186,6 +186,15 @@ class PPOAgent(MyContinuousA2CBase):
             )
             a_loss, c_loss, entropy, b_loss = losses[0], losses[1], losses[2], losses[3]
 
+            # TEMP DEBUG: identify exactly which loss term carries NaN,
+            # right before they get summed into the final loss
+            import torch as _torch_dbg
+            for _name, _t in [("a_loss", a_loss), ("c_loss", c_loss), ("entropy", entropy), ("b_loss", b_loss)]:
+                if _torch_dbg.isnan(_t).any():
+                    print(f"[NaN DEBUG] {_name} contains NaN: {_t}")
+            if _torch_dbg.isnan(mu).any() or _torch_dbg.isnan(sigma).any():
+                print(f"[NaN DEBUG] mu nan: {_torch_dbg.isnan(mu).any().item()}, sigma nan: {_torch_dbg.isnan(sigma).any().item()}, sigma: {sigma}")
+
             loss = (
                 a_loss + 0.5 * c_loss * self.critic_coef - entropy * self.entropy_coef + b_loss * self.bounds_loss_coef
             )
