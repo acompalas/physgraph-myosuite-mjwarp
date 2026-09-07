@@ -73,7 +73,14 @@ class SimpleHandPolicy(A2CBuilder.Network):
         # for continuous PPO with a learned/fixed sigma parameter, not a
         # hack specific to our setup. Upper bound also prevents sigma
         # from growing unreasonably large.
-        sigma = torch.clamp(self.sigma, min=-5.0, max=2.0)
+        # nan_to_num BEFORE clamp: clamp alone does not sanitize NaN
+        # (NaN compared against any bound is always False, so it passes
+        # through unchanged) -- if a NaN gradient ever corrupts the
+        # sigma parameter itself via an optimizer step, this replaces
+        # it with a safe default (matching our original init value)
+        # rather than letting NaN propagate into distr.sample()
+        sigma = torch.nan_to_num(self.sigma, nan=-1.0)
+        sigma = torch.clamp(sigma, min=-5.0, max=2.0)
         value = self.value_head(torch.cat([z, obs["privileged"]], dim=-1))
 
         # 4-tuple, matching the standard ModelA2CContinuousLogStd wrapper
