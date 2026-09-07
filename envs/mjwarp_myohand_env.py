@@ -134,7 +134,7 @@ class MyoHandPourEnv:
         self.mj_model = base.compile()
 
         self.model = mjw.put_model(self.mj_model)
-        self.data = mjw.make_data(self.mj_model, nworld=num_envs, nconmax=num_envs * 50, njmax=num_envs * 100)
+        self.data = mjw.make_data(self.mj_model, nworld=num_envs, nconmax=num_envs * 50, njmax=num_envs * 200)  # bumped from *100 -- real observed nefc overflow at ~102-106/env
 
         self.n_dofs_hand = 23
         self.dof_names = self._dof_names()
@@ -499,29 +499,18 @@ class MyoHandPourEnv:
             | (torch.norm(current_obj_vel, dim=-1) > 100)
             | (torch.norm(current_obj_ang_vel, dim=-1) > 200)
         )
-        _cond_obj_pos = diff_obj_pos_dist > 0.02 / 0.343 * scale_factor ** 3
-        _cond_thumb = diff_thumb_tip_pos_dist > 0.04 / 0.7 * scale_factor
-        _cond_index = diff_index_tip_pos_dist > 0.045 / 0.7 * scale_factor
-        _cond_middle = diff_middle_tip_pos_dist > 0.05 / 0.7 * scale_factor
-        _cond_pinky = diff_pinky_tip_pos_dist > 0.06 / 0.7 * scale_factor
-        _cond_ring = diff_ring_tip_pos_dist > 0.06 / 0.7 * scale_factor
-        _cond_l1 = diff_level_1_pos_dist > 0.07 / 0.7 * scale_factor
-        _cond_l2 = diff_level_2_pos_dist > 0.08 / 0.7 * scale_factor
-        _cond_rot = diff_obj_rot_angle.abs() / np.pi * 180 > 30 / 0.343 * scale_factor ** 3
-        if (self.progress_buf[0] >= 7) and (self.progress_buf[0] <= 9):
-            print(f"[FAIL DEBUG] step={self.progress_buf[0].item()} "
-                  f"obj_pos={_cond_obj_pos.float().mean().item():.2f}({diff_obj_pos_dist.mean().item():.4f}) "
-                  f"thumb={_cond_thumb.float().mean().item():.2f}({diff_thumb_tip_pos_dist.mean().item():.4f}) "
-                  f"index={_cond_index.float().mean().item():.2f}({diff_index_tip_pos_dist.mean().item():.4f}) "
-                  f"middle={_cond_middle.float().mean().item():.2f}({diff_middle_tip_pos_dist.mean().item():.4f}) "
-                  f"pinky={_cond_pinky.float().mean().item():.2f}({diff_pinky_tip_pos_dist.mean().item():.4f}) "
-                  f"ring={_cond_ring.float().mean().item():.2f}({diff_ring_tip_pos_dist.mean().item():.4f}) "
-                  f"l1={_cond_l1.float().mean().item():.2f}({diff_level_1_pos_dist.mean().item():.4f}) "
-                  f"l2={_cond_l2.float().mean().item():.2f}({diff_level_2_pos_dist.mean().item():.4f}) "
-                  f"rot={_cond_rot.float().mean().item():.2f}({diff_obj_rot_angle.abs().mean().item():.4f})")
         failed_execute = (
-            (_cond_obj_pos | _cond_thumb | _cond_index | _cond_middle | _cond_pinky
-             | _cond_ring | _cond_l1 | _cond_l2 | _cond_rot)
+            (
+                (diff_obj_pos_dist > 0.02 / 0.343 * scale_factor ** 3)
+                | (diff_thumb_tip_pos_dist > 0.04 / 0.7 * scale_factor)
+                | (diff_index_tip_pos_dist > 0.045 / 0.7 * scale_factor)
+                | (diff_middle_tip_pos_dist > 0.05 / 0.7 * scale_factor)
+                | (diff_pinky_tip_pos_dist > 0.06 / 0.7 * scale_factor)
+                | (diff_ring_tip_pos_dist > 0.06 / 0.7 * scale_factor)
+                | (diff_level_1_pos_dist > 0.07 / 0.7 * scale_factor)
+                | (diff_level_2_pos_dist > 0.08 / 0.7 * scale_factor)
+                | (diff_obj_rot_angle.abs() / np.pi * 180 > 30 / 0.343 * scale_factor ** 3)
+            )
             & (self.progress_buf >= 8)
         ) | error_buf
 
