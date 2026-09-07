@@ -145,6 +145,15 @@ class PPOAgent(MyContinuousA2CBase):
         with torch.cuda.amp.autocast(enabled=self.mixed_precision):
             res_dict = self.model(batch_dict)
             action_log_probs = res_dict["prev_neglogp"]
+
+            # TEMP DEBUG: check every input to the actor loss, plus the
+            # mask, before a_loss is computed
+            import torch as _torch_dbg2
+            print(f"[NaN DEBUG2] cur_mask sum: {cur_mask.sum().item() if cur_mask is not None else 'None'}, "
+                  f"cur_mask numel: {cur_mask.numel() if cur_mask is not None else 'None'}")
+            print(f"[NaN DEBUG2] action_log_probs nan: {_torch_dbg2.isnan(action_log_probs).any().item()}, "
+                  f"old_action_log_probs_batch nan: {_torch_dbg2.isnan(old_action_log_probs_batch).any().item()}, "
+                  f"advantage nan: {_torch_dbg2.isnan(advantage).any().item()}, advantage: {advantage}")
             values = res_dict["values"]
             entropy = res_dict["entropy"]
             mu = res_dict["mus"]
