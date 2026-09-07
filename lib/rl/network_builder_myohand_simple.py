@@ -68,6 +68,17 @@ class SimpleHandPolicy(A2CBuilder.Network):
         action_mu = self.action_mu_head(z)
         sigma = self.sigma
         value = self.value_head(torch.cat([z, obs["privileged"]], dim=-1))
+
+        # TEMP DEBUG: check whether NaN already exists at this point, in
+        # OUR OWN network output, before rl_games' loss/backward math
+        # ever touches it -- narrows down whether the root cause is in
+        # our code or in downstream training dynamics/hyperparameters
+        if torch.isnan(action_mu).any() or torch.isnan(sigma).any() or torch.isnan(value).any():
+            print(f"[NaN DEBUG] action_mu nan: {torch.isnan(action_mu).any().item()}, "
+                  f"sigma nan: {torch.isnan(sigma).any().item()}, sigma value: {sigma}, "
+                  f"value nan: {torch.isnan(value).any().item()}")
+            raise RuntimeError("NaN detected in SimpleHandPolicy.forward output")
+
         # 4-tuple, matching the standard ModelA2CContinuousLogStd wrapper
         # we use (mu, logstd, value, states). PhysGraph's own real network
         # returns a 5-tuple -- that extra trailing value is specific to
