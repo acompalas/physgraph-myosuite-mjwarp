@@ -143,7 +143,21 @@ class MyoHandPourEnv:
         self.root_dof_adr = self._joint_dof_adr("root_r")
         self.dof_adrs = np.array([self._joint_qpos_adr(n) for n in self.dof_names])
         self.dof_veladrs = np.array([self._joint_dof_adr(n) for n in self.dof_names])
-        self.body_ids = np.array([mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, n) for n in self.body_names])
+        # mixed body/site lookup: tips (THtip_r etc) are real sites, not
+        # bodies (confirmed via direct compiled-model inspection) -- for
+        # each name, try body first, fall back to site. site_ids[i] >= 0
+        # marks an entry that must be read from site_xpos, not xpos.
+        self.body_ids = np.zeros(len(self.body_names), dtype=np.int64)
+        self.site_ids = np.full(len(self.body_names), -1, dtype=np.int64)
+        for _i, _name in enumerate(self.body_names):
+            _bid = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, _name)
+            if _bid >= 0:
+                self.body_ids[_i] = _bid
+            else:
+                _sid = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_SITE, _name)
+                assert _sid >= 0, f"{_name} not found as body or site"
+                self.site_ids[_i] = _sid
+        self.is_site_mask = torch.tensor(self.site_ids[1:] >= 0, device=self.device)
         self.src_adr = self._joint_qpos_adr("src_O02@0015@00020_free")
         self.dst_adr = self._joint_qpos_adr("dst_O02@0010@00003_free")
         self.src_dof_adr = self._joint_dof_adr("src_O02@0015@00020_free")
@@ -230,12 +244,20 @@ class MyoHandPourEnv:
         ]
 
     def _body_names(self):
+        # CONFIRMED via direct compiled-model inspection (2026-09-07):
+        # real body names have NO "_j1" suffix (that was a bug --
+        # mj_name2id silently returned -1 for firstmc_r_j1/2proxph_r_j1/
+        # etc, and -1 as an array index wrapped around, reading the SAME
+        # wrong xpos for every affected body). Tips (THtip_r etc) are
+        # real names but are SITES, not bodies -- no separate tip body
+        # exists in the compiled model at all (the finger chain ends at
+        # the distal phalanx); see body_ids/site_ids construction below.
         return [
-            "lunate_r_j1", "firstmc_r_j1", "proximal_thumb_r", "distal_thumb_r", "THtip_r",
-            "2proxph_r_j1", "midph2_r", "distph2_r", "IFtip_r",
-            "3proxph_r_j1", "midph3_r", "distph3_r", "MFtip_r",
-            "4proxph_r_j1", "midph4_r", "distph4_r", "RFtip_r",
-            "5proxph_r_j1", "midph5_r", "distph5_r", "LFtip_r",
+            "lunate_r", "firstmc_r", "proximal_thumb_r", "distal_thumb_r", "THtip_r",
+            "2proxph_r", "midph2_r", "distph2_r", "IFtip_r",
+            "3proxph_r", "midph3_r", "distph3_r", "MFtip_r",
+            "4proxph_r", "midph4_r", "distph4_r", "RFtip_r",
+            "5proxph_r", "midph5_r", "distph5_r", "LFtip_r",
         ]
 
     def get_number_of_agents(self):
@@ -386,7 +408,12 @@ class MyoHandPourEnv:
         current_eef_vel = qvel[:, self.root_dof_adr:self.root_dof_adr + 3]
         current_eef_ang_vel = qvel[:, self.root_dof_adr + 3:self.root_dof_adr + 6]
 
-        joints_pos = xpos[:, self.body_ids[1:], :]  # exclude wrist (index 0)
+        # tips are sites (THtip_r etc, confirmed via direct model
+        # inspection) -- read from site_xpos for those, xpos for the rest
+        site_xpos = wp.to_torch(self.data.site_xpos)
+        body_vals = xpos[:, self.body_ids[1:], :]
+        site_vals = site_xpos[:, self.site_ids[1:].clip(min=0), :]
+        joints_pos = torch.where(self.is_site_mask[None, :, None], site_vals, body_vals)
         if self.prev_body_xpos is None:
             joints_vel = torch.zeros_like(joints_pos)
         else:
