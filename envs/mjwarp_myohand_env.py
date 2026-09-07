@@ -316,6 +316,12 @@ class MyoHandPourEnv:
         reset_buf = self.success_buf_ | self.failure_buf_
         done_env_ids = reset_buf.nonzero(as_tuple=False).flatten()
         if len(done_env_ids) > 0:
+            # TEMP DEBUG: what progress_buf value are envs actually
+            # resetting at during real training (vs our standalone test)?
+            progresses = self.progress_buf[done_env_ids]
+            print(f"[RESET DEBUG] resetting {len(done_env_ids)} envs, "
+                  f"progress values: {progresses.tolist()[:10]}"
+                  f"{'...' if len(progresses) > 10 else ''}")
             self.reset_idx(done_env_ids)
         return self._compute_obs(), done_env_ids
 
