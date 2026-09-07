@@ -41,15 +41,15 @@ class MyoHandR(DexHand):
         # scripts/cut_hand_ulna_root.py), matching pytorch_kinematics'
         # actual frame names in the preprocessed chain
         self.body_names = [
-            "lunate_r_j1",          # wrist (after deviation + flexion)
-            "firstmc_r_j1",         # thumb metacarpal (after cmc flex+abd)
+            "lunate_r",          # wrist (after deviation + flexion)
+            "firstmc_r",         # thumb metacarpal (after cmc flex+abd)
             "proximal_thumb_r",     # thumb proximal phalanx (mp_flexion)
             "distal_thumb_r",       # thumb distal phalanx (ip_flexion)
             "THtip_r",              # thumb tip (site)
-            "2proxph_r_j1", "midph2_r", "distph2_r", "IFtip_r",  # index
-            "3proxph_r_j1", "midph3_r", "distph3_r", "MFtip_r",  # middle
-            "4proxph_r_j1", "midph4_r", "distph4_r", "RFtip_r",  # ring
-            "5proxph_r_j1", "midph5_r", "distph5_r", "LFtip_r",  # pinky
+            "2proxph_r", "midph2_r", "distph2_r", "IFtip_r",  # index
+            "3proxph_r", "midph3_r", "distph3_r", "MFtip_r",  # middle
+            "4proxph_r", "midph4_r", "distph4_r", "RFtip_r",  # ring
+            "5proxph_r", "midph5_r", "distph5_r", "LFtip_r",  # pinky
         ]
 
         self.dof_names = [
@@ -62,24 +62,24 @@ class MyoHandR(DexHand):
         ]
 
         self.hand2dex_mapping = {
-            "wrist": ["lunate_r_j1"],
-            "thumb_proximal": ["firstmc_r_j1"],
+            "wrist": ["lunate_r"],
+            "thumb_proximal": ["firstmc_r"],
             "thumb_intermediate": ["proximal_thumb_r"],
             "thumb_distal": ["distal_thumb_r"],
             "thumb_tip": ["THtip_r"],
-            "index_proximal": ["2proxph_r_j1"],
+            "index_proximal": ["2proxph_r"],
             "index_intermediate": ["midph2_r"],
             "index_distal": ["distph2_r"],
             "index_tip": ["IFtip_r"],
-            "middle_proximal": ["3proxph_r_j1"],
+            "middle_proximal": ["3proxph_r"],
             "middle_intermediate": ["midph3_r"],
             "middle_distal": ["distph3_r"],
             "middle_tip": ["MFtip_r"],
-            "ring_proximal": ["4proxph_r_j1"],
+            "ring_proximal": ["4proxph_r"],
             "ring_intermediate": ["midph4_r"],
             "ring_distal": ["distph4_r"],
             "ring_tip": ["RFtip_r"],
-            "pinky_proximal": ["5proxph_r_j1"],
+            "pinky_proximal": ["5proxph_r"],
             "pinky_intermediate": ["midph5_r"],
             "pinky_distal": ["distph5_r"],
             "pinky_tip": ["LFtip_r"],
@@ -132,15 +132,15 @@ class MyoHandL(DexHand):
         self.side = "lh"
 
         self.body_names = [
-            "lunate_l_j1",          # wrist (after deviation + flexion)
-            "firstmc_l_j1",         # thumb metacarpal (after cmc flex+abd)
+            "lunate_l",          # wrist (after deviation + flexion)
+            "firstmc_l",         # thumb metacarpal (after cmc flex+abd)
             "proximal_thumb_l",     # thumb proximal phalanx (mp_flexion)
             "distal_thumb_l",       # thumb distal phalanx (ip_flexion)
             "THtip_l",              # thumb tip (site)
-            "2proxph_l_j1", "midph2_l", "distph2_l", "IFtip_l",  # index
-            "3proxph_l_j1", "midph3_l", "distph3_l", "MFtip_l",  # middle
-            "4proxph_l_j1", "midph4_l", "distph4_l", "RFtip_l",  # ring
-            "5proxph_l_j1", "midph5_l", "distph5_l", "LFtip_l",  # pinky
+            "2proxph_l", "midph2_l", "distph2_l", "IFtip_l",  # index
+            "3proxph_l", "midph3_l", "distph3_l", "MFtip_l",  # middle
+            "4proxph_l", "midph4_l", "distph4_l", "RFtip_l",  # ring
+            "5proxph_l", "midph5_l", "distph5_l", "LFtip_l",  # pinky
         ]
 
         self.dof_names = [
@@ -153,24 +153,24 @@ class MyoHandL(DexHand):
         ]
 
         self.hand2dex_mapping = {
-            "wrist": ["lunate_l_j1"],
-            "thumb_proximal": ["firstmc_l_j1"],
+            "wrist": ["lunate_l"],
+            "thumb_proximal": ["firstmc_l"],
             "thumb_intermediate": ["proximal_thumb_l"],
             "thumb_distal": ["distal_thumb_l"],
             "thumb_tip": ["THtip_l"],
-            "index_proximal": ["2proxph_l_j1"],
+            "index_proximal": ["2proxph_l"],
             "index_intermediate": ["midph2_l"],
             "index_distal": ["distph2_l"],
             "index_tip": ["IFtip_l"],
-            "middle_proximal": ["3proxph_l_j1"],
+            "middle_proximal": ["3proxph_l"],
             "middle_intermediate": ["midph3_l"],
             "middle_distal": ["distph3_l"],
             "middle_tip": ["MFtip_l"],
-            "ring_proximal": ["4proxph_l_j1"],
+            "ring_proximal": ["4proxph_l"],
             "ring_intermediate": ["midph4_l"],
             "ring_distal": ["distph4_l"],
             "ring_tip": ["RFtip_l"],
-            "pinky_proximal": ["5proxph_l_j1"],
+            "pinky_proximal": ["5proxph_l"],
             "pinky_intermediate": ["midph5_l"],
             "pinky_distal": ["distph5_l"],
             "pinky_tip": ["LFtip_l"],
