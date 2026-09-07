@@ -66,7 +66,14 @@ class SimpleHandPolicy(A2CBuilder.Network):
         obs = obs["obs"]
         z = self.feature_fusion(obs)
         action_mu = self.action_mu_head(z)
-        sigma = self.sigma
+        # Clamp logstd away from very negative values. Without this,
+        # sigma=exp(logstd) can approach 0, and entropy's gradient
+        # (involving 1/sigma) can explode to NaN even while sigma itself
+        # stays forward-finite -- a well-known stabilization technique
+        # for continuous PPO with a learned/fixed sigma parameter, not a
+        # hack specific to our setup. Upper bound also prevents sigma
+        # from growing unreasonably large.
+        sigma = torch.clamp(self.sigma, min=-5.0, max=2.0)
         value = self.value_head(torch.cat([z, obs["privileged"]], dim=-1))
 
         # TEMP DEBUG: check whether NaN already exists at this point, in
