@@ -146,7 +146,7 @@ class MyoHandPourEnv:
 
         self.model = mjw.put_model(self.mj_model)
         self.data = mjw.make_data(
-            self.mj_model, nworld=num_envs, nconmax=num_envs * 6, njmax=num_envs * 4,
+            self.mj_model, nworld=num_envs, nconmax=num_envs * 8, njmax=num_envs * 4,
             naccdmax=num_envs * 6, nccdmax=num_envs * 6,
         )  # naccdmax/nccdmax explicit -- real GPU OOM at num_envs=256/1024 from an
         # unbounded default MULTICCD buffer (multiccd_polygon), unrelated to
