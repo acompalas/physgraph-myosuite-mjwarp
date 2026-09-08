@@ -285,8 +285,10 @@ class MyoHandPourEnv:
         # matching PhysGraph's own per-modality concatenated-tensor
         # convention -- see _compute_obs() for the full rationale
         rh_proprio_dim = 23 * 3 + 13   # dof_pos/cos/sin + wrist pos/quat/vel/angvel
-        rh_privileged_dim = 23 + 3 + 4  # dof_vel + obj_pos_rel + obj_quat
-        rh_target_dim = 3 + 4 + 23      # delta_wrist_pos/quat + delta_dof_pos
+        # dof_vel + obj_pos + obj_quat + obj_vel + obj_ang_vel + obj_com + obj_weight + tip_force
+        rh_privileged_dim = 23 + 3 + 4 + 3 + 3 + 3 + 1 + 20  # = 60
+        # wrist(23) + joints(180=60*3) + obj(23) + obj_to_joints(21) + gt_tips(5) + bps(128)
+        rh_target_dim = 23 + 180 + 23 + 21 + 5 + 128  # = 380
         self.observation_space = gym.spaces.Dict({
             "proprioception": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(rh_proprio_dim * 2,), dtype=np.float32),
             "privileged": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(rh_privileged_dim * 2,), dtype=np.float32),
