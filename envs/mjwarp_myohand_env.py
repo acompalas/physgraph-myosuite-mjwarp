@@ -160,6 +160,7 @@ class MyoHandPourEnv:
         self.is_site_mask = torch.tensor(self.site_ids[1:] >= 0, device=self.device)
         self.src_adr = self._joint_qpos_adr("src_O02@0015@00020_free")
         self.dst_adr = self._joint_qpos_adr("dst_O02@0010@00003_free")
+        self.dst_dof_adr = self._joint_dof_adr("dst_O02@0010@00003_free")
         self.src_dof_adr = self._joint_dof_adr("src_O02@0015@00020_free")
 
         # reuse our own already-built, tested weight_idx (myohand_def.py,
@@ -183,6 +184,43 @@ class MyoHandPourEnv:
         mano_joints = self.rh_demo["mano_joints"]
         target_joints_list = [mano_joints[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
         self.demo_target_joints_pos = torch.stack(target_joints_list, dim=1).to(device=self.device, dtype=torch.float32)
+
+        # target VELOCITIES -- REAL fields from the original demo data
+        # (not finite-differenced from our own retargeted trajectory).
+        # PhysGraph's own compute_observations_side reads these directly
+        # (dexhandmanip_bih.py: side_demo_data["wrist_angular_velocity"]
+        # etc) -- confirmed all present in our own 1292e_training_demo.pkl.
+        # Using the opt_-prefixed wrist fields specifically: these are the
+        # velocity of OUR retargeted trajectory (matching opt_wrist_pos/
+        # opt_wrist_rot, what we actually use as targets), NOT the
+        # original pre-retargeting human wrist_velocity/wrist_angular_
+        # velocity fields (a different, also-present pair -- confirmed
+        # both exist, opt_ ones are the consistent choice for us).
+        self.demo_wrist_vel = self._to_tensor(self.rh_demo["opt_wrist_velocity"])
+        self.demo_wrist_ang_vel = self._to_tensor(self.rh_demo["opt_wrist_angular_velocity"])
+
+        mano_joints_vel = self.rh_demo["mano_joints_velocity"]
+        joints_vel_list = [mano_joints_vel[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
+        self.demo_joints_vel = torch.stack(joints_vel_list, dim=1).to(device=self.device, dtype=torch.float32)
+
+        self.demo_src_obj_vel = self._to_tensor(self.rh_demo["obj_velocity"])
+        self.demo_src_obj_ang_vel = self._to_tensor(self.rh_demo["obj_angular_velocity"])
+
+        # destination mug is static -- target velocity is genuinely zero
+        # every frame (no corresponding real field exists since our own
+        # lh_stationary dict never captured hand-held destination-mug
+        # motion -- see project notes on the stationary-mug design)
+        self.demo_dst_obj_vel = torch.zeros(3, device=self.device)
+        self.demo_dst_obj_ang_vel = torch.zeros(3, device=self.device)
+
+        # real BPS object-shape encodings, precomputed offline (see
+        # project notes -- bps_torch/chamfer_distance/pytorch3d chain
+        # computed in the physgraph env, bridged via portable pickle,
+        # zero bps_torch dependency needed here)
+        with open(os.path.join(repo_root, "assets/retargeted/1292e_src_mug_bps.pkl"), "rb") as f:
+            self.src_mug_bps = torch.tensor(pickle.load(f), device=self.device, dtype=torch.float32)[0]
+        with open(os.path.join(repo_root, "assets/retargeted/1292e_dst_mug_bps.pkl"), "rb") as f:
+            self.dst_mug_bps = torch.tensor(pickle.load(f), device=self.device, dtype=torch.float32)[0]
 
         self.progress_buf = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.success_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
