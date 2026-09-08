@@ -87,6 +87,17 @@ def quat_conjugate(q):
     return torch.cat([q[..., 0:1], -q[..., 1:]], dim=-1)
 
 
+def quat_rotate_vec(q, v):
+    """Rotate vector v (..., 3) by quaternion q (..., 4), [w,x,y,z]
+    convention. Standard closed-form quat-vector rotation, needed for
+    manip_obj_com (rotating the body-frame COM offset into world frame),
+    matching PhysGraph real construction (dexhandmanip_bih.py:1150-1154)."""
+    w = q[..., 0:1]
+    qvec = q[..., 1:]
+    t = 2.0 * torch.cross(qvec, v, dim=-1)
+    return v + w * t + torch.cross(qvec, t, dim=-1)
+
+
 def quat_to_angle(q):
     """Quaternion [w,x,y,z] -> rotation angle (magnitude only, radians).
     Matches PhysGraph's quat_to_angle_axis(...)[0] usage in
@@ -229,6 +240,25 @@ class MyoHandPourEnv:
         dst_pose0 = self._to_tensor(self.lh_demo["obj_trajectory"][0])
         self.lh_target_pos = dst_pose0[:3, 3][None, :]
         self.lh_target_quat = rotmat_to_quat(dst_pose0[:3, :3][None])
+
+        # tip contact-force bodies (real distal phalanx bodies, NOT the
+        # tip sites -- sites have no dynamics/mass of their own), matching
+        # PhysGraph's real tip_force construction exactly (net_cf per
+        # contact body + its own magnitude, dexhandmanip_bih.py:1158-1173)
+        self.tip_body_ids = np.array([
+            mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, n) for n in dexhand.contact_body_names
+        ])
+
+        # static object COM (relative to body origin, real body_ipos field)
+        # and weight (mass * gravity), matching PhysGraph's real
+        # manip_obj_com/manip_obj_weight construction exactly
+        src_body_id = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, "src_O02@0015@00020")
+        dst_body_id = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, "dst_O02@0010@00003")
+        self.src_com = self._to_tensor(self.mj_model.body_ipos[src_body_id])
+        self.dst_com = self._to_tensor(self.mj_model.body_ipos[dst_body_id])
+        _gravity_z = abs(self.mj_model.opt.gravity[2])
+        self.src_weight = torch.tensor(self.mj_model.body_mass[src_body_id] * _gravity_z, device=self.device, dtype=torch.float32)
+        self.dst_weight = torch.tensor(self.mj_model.body_mass[dst_body_id] * _gravity_z, device=self.device, dtype=torch.float32)
 
         self.progress_buf = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.success_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
@@ -409,9 +439,34 @@ class MyoHandPourEnv:
             torch.zeros_like(wrist_pos), wrist_quat, wrist_linvel, wrist_angvel,
         ], dim=-1)
 
+        # populate cfrc_ext (per-body net contact force) -- NOT computed
+        # by mjw.forward() alone, needs an explicit post-constraint pass
+        # (matches real MuJoCo's mj_rnePostConstraint design -- confirmed
+        # via direct testing 2026-09-08, verified physically sensible
+        # Newton's-third-law-symmetric values for a known mug-mug contact)
+        mjw.rne_postconstraint(self.model, self.data)
+        cfrc_ext = wp.to_torch(self.data.cfrc_ext)
+        n = self.num_envs
+
         src_pos = qpos[:, self.src_adr:self.src_adr + 3]
         src_quat = qpos[:, self.src_adr + 3:self.src_adr + 7]
-        rh_privileged = torch.cat([dof_vel, src_pos - wrist_pos, src_quat], dim=-1)
+        src_vel = qvel[:, self.src_dof_adr:self.src_dof_adr + 3]
+        src_ang_vel = qvel[:, self.src_dof_adr + 3:self.src_dof_adr + 6]
+        src_com_world = quat_rotate_vec(src_quat, self.src_com[None, :].expand(n, -1)) + src_pos
+        src_com_rel = src_com_world - wrist_pos
+        src_weight = self.src_weight.expand(n, 1) if self.src_weight.dim() == 0 else self.src_weight[None].expand(n, 1)
+
+        # tip_force: real per-body net contact force (linear component,
+        # cfrc_ext[..., 3:6]) + its own magnitude, matching PhysGraph's
+        # exact construction (dexhandmanip_bih.py:1158-1173)
+        tip_force_lin = cfrc_ext[:, self.tip_body_ids, 3:6]  # (n, 5, 3)
+        tip_force_mag = torch.norm(tip_force_lin, dim=-1, keepdim=True)  # (n, 5, 1)
+        tip_force = torch.cat([tip_force_lin, tip_force_mag], dim=-1).reshape(n, -1)  # (n, 20)
+
+        rh_privileged = torch.cat([
+            dof_vel, src_pos - wrist_pos, src_quat, src_vel, src_ang_vel,
+            src_com_rel, src_weight.reshape(n, 1), tip_force,
+        ], dim=-1)
 
         # === RH target: full real composition ===
         idx = self.progress_buf
@@ -490,7 +545,21 @@ class MyoHandPourEnv:
         ], dim=-1)
 
         lh_proprio = torch.zeros_like(rh_proprio)
-        lh_privileged = torch.zeros_like(rh_privileged)
+        # LH privileged: hand fields inert (zero, no LH dof), object
+        # fields REAL (destination mug) -- same "hand inert, object real"
+        # principle as the LH target tensor. obj_pos relative to RH's
+        # own wrist (the only real, active wrist in this scene -- the
+        # right hand is the one that needs spatial awareness of the
+        # destination mug). tip_force zero (no LH fingers/contacts exist).
+        dst_com_world = quat_rotate_vec(dst_quat, self.dst_com[None, :].expand(n, -1)) + dst_pos
+        dst_com_rel = dst_com_world - wrist_pos
+        dst_weight = self.dst_weight.expand(n, 1) if self.dst_weight.dim() == 0 else self.dst_weight[None].expand(n, 1)
+        lh_tip_force = torch.zeros(n, 20, device=self.device)
+        lh_privileged = torch.cat([
+            torch.zeros(n, 23, device=self.device),  # dof_vel (inert -- no LH dof)
+            dst_pos - wrist_pos, dst_quat, dst_vel, dst_ang_vel,
+            dst_com_rel, dst_weight.reshape(n, 1), lh_tip_force,
+        ], dim=-1)
 
         proprioception = torch.cat([rh_proprio, lh_proprio], dim=-1)
         privileged = torch.cat([rh_privileged, lh_privileged], dim=-1)
