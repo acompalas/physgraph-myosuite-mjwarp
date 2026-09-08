@@ -175,7 +175,7 @@ class MyoHandPourEnv:
         # per-body velocity (cvel) has a specific 6D com-based
         # convention not yet verified for mujoco_warp, deferred
         self.prev_body_xpos = None
-        self.current_joints_pos_ = self.demo_target_joints_pos[0][None, :, :].expand(num_envs, -1, -1).clone()
+        self.current_joints_pos_ = torch.zeros(num_envs, 20, 3, device=device)
         self.current_joints_vel_ = torch.zeros(num_envs, 20, 3, device=device)
 
         dexhand = MyoHandR()
