@@ -222,6 +222,12 @@ class MyoHandPourEnv:
         with open(os.path.join(repo_root, "assets/retargeted/1292e_dst_mug_bps.pkl"), "rb") as f:
             self.dst_mug_bps = torch.tensor(pickle.load(f), device=self.device, dtype=torch.float32)[0]
 
+        # destination mug's fixed TARGET pose -- matches what reset()
+        # already uses to place it (frame 0 of the static trajectory)
+        dst_pose0 = self._to_tensor(self.lh_demo["obj_trajectory"][0])
+        self.lh_target_pos = dst_pose0[:3, 3][None, :]
+        self.lh_target_quat = rotmat_to_quat(dst_pose0[:3, :3][None])
+
         self.progress_buf = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.success_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
         self.failure_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
@@ -367,19 +373,25 @@ class MyoHandPourEnv:
         """Bimanual-SHAPED observation (per stream: [rh_real, lh_inert]
         concatenated), matching PhysGraph's own convention exactly (its
         transformer network internally slices obs['proprioception'] into
-        r_prop/l_prop, i.e. it also expects one concatenated tensor per
-        modality covering both hands). LH is currently fully inert (no
-        left hand rendered/actuated in this env -- see project notes'
-        deferred bimanual milestone) -- its stream is a static zero
-        tensor of the SAME width RH uses, so the shape is genuinely
-        bimanual-ready even though only RH carries real data today.
-        Real per-hand streams built with SimpleFeatureFusion/Identity
-        (lib/nn/features/), NOT PhysGraph's bimanual transformer network
-        (network_builder_transformer_bih_graph_improve_correct.py) --
-        that file is hardcoded to a DIFFERENT embodiment's exact dof/body
-        counts (22/27, likely ArtiMANO) plus real BPS object-shape
-        encoding we don't compute -- adopting it faithfully is a real,
-        separate future task once a second hand does real work."""
+        r_prop/l_prop). LH hand fields are fully inert (zeros) -- no left
+        hand rendered/actuated in this task -- but the LH OBJECT slot
+        carries the REAL, static destination mug (position/rotation/BPS),
+        since the right hand needs awareness of where to pour into even
+        though the left hand does nothing. See project notes for the
+        full field-by-field trace against PhysGraph's real
+        compute_observations_side (dexhandmanip_bih.py) this is based on.
+
+        Target tensor: full 380-dim-per-hand composition (not the earlier
+        3-field placeholder), matching PhysGraph's real field list exactly
+        (450 for them, 20 real joints vs their 27 changes joint-related
+        dims): delta_wrist_pos/wrist_vel/delta_wrist_vel/wrist_quat/
+        delta_wrist_quat/wrist_ang_vel/delta_wrist_ang_vel/delta_joints_pos/
+        joints_vel/delta_joints_vel/delta_manip_obj_pos/manip_obj_vel/
+        delta_manip_obj_vel/manip_obj_quat/delta_manip_obj_quat/
+        manip_obj_ang_vel/delta_manip_obj_ang_vel/obj_to_joints/
+        gt_tips_distance/bps. obj_to_joints and gt_tips_distance are
+        genuinely undefined for the inert LH (no LH joints/fingers exist
+        in this sim) -- zeroed, not approximated."""
         qpos = wp.to_torch(self.data.qpos)
         qvel = wp.to_torch(self.data.qvel)
 
@@ -399,21 +411,84 @@ class MyoHandPourEnv:
         src_quat = qpos[:, self.src_adr + 3:self.src_adr + 7]
         rh_privileged = torch.cat([dof_vel, src_pos - wrist_pos, src_quat], dim=-1)
 
-        next_idx = torch.clamp(self.progress_buf + 1, max=self.seq_len - 1)
-        target_wrist_pos = self.demo_opt_wrist_pos[next_idx]
-        target_wrist_rot = self.demo_opt_wrist_rot[next_idx]
-        target_dof_pos = self.demo_opt_dof_pos[next_idx]
-        target_wrist_quat = aa_to_quat(target_wrist_rot)
+        # === RH target: full real composition ===
+        idx = self.progress_buf
+        n = self.num_envs
 
+        target_wrist_pos = self.demo_opt_wrist_pos[idx]
+        target_wrist_quat = aa_to_quat(self.demo_opt_wrist_rot[idx])
+        target_wrist_vel = self.demo_wrist_vel[idx]
+        target_wrist_ang_vel = self.demo_wrist_ang_vel[idx]
         delta_wrist_pos = target_wrist_pos - wrist_pos
+        delta_wrist_vel = target_wrist_vel - wrist_linvel
         delta_wrist_quat = quat_mul(wrist_quat, quat_conjugate(target_wrist_quat))
-        delta_dof_pos = target_dof_pos - dof_pos
+        delta_wrist_ang_vel = target_wrist_ang_vel - wrist_angvel
 
-        rh_target = torch.cat([delta_wrist_pos, delta_wrist_quat, delta_dof_pos], dim=-1)
+        target_joints_pos = self.demo_target_joints_pos[idx]
+        target_joints_vel = self.demo_joints_vel[idx]
+        current_joints_pos = self.current_joints_pos_
+        current_joints_vel = self.current_joints_vel_
+        delta_joints_pos = (target_joints_pos - current_joints_pos).reshape(n, -1)
+        joints_vel_flat = target_joints_vel.reshape(n, -1)
+        delta_joints_vel = (target_joints_vel - current_joints_vel).reshape(n, -1)
+
+        target_obj_pos = self.demo_src_obj_traj[idx, :3, 3]
+        target_obj_quat = rotmat_to_quat(self.demo_src_obj_traj[idx, :3, :3])
+        target_obj_vel = self.demo_src_obj_vel[idx]
+        target_obj_ang_vel = self.demo_src_obj_ang_vel[idx]
+        current_obj_vel = qvel[:, self.src_dof_adr:self.src_dof_adr + 3]
+        current_obj_ang_vel = qvel[:, self.src_dof_adr + 3:self.src_dof_adr + 6]
+        delta_obj_pos = target_obj_pos - src_pos
+        delta_obj_vel = target_obj_vel - current_obj_vel
+        delta_obj_quat = quat_mul(src_quat, quat_conjugate(target_obj_quat))
+        delta_obj_ang_vel = target_obj_ang_vel - current_obj_ang_vel
+
+        all_joints_pos = torch.cat([wrist_pos[:, None, :], current_joints_pos], dim=1)  # (n, 21, 3)
+        obj_to_joints = torch.norm(src_pos[:, None, :] - all_joints_pos, dim=-1).reshape(n, -1)
+
+        tips_dist_idx = torch.clamp(idx, max=self.rh_demo["tips_distance"].shape[0] - 1)
+        gt_tips_distance = self.rh_demo["tips_distance"].to(self.device)[tips_dist_idx]
+
+        rh_target = torch.cat([
+            delta_wrist_pos, target_wrist_vel, delta_wrist_vel,
+            target_wrist_quat, delta_wrist_quat, target_wrist_ang_vel, delta_wrist_ang_vel,
+            delta_joints_pos, joints_vel_flat, delta_joints_vel,
+            delta_obj_pos, target_obj_vel, delta_obj_vel,
+            target_obj_quat, delta_obj_quat, target_obj_ang_vel, delta_obj_ang_vel,
+            obj_to_joints, gt_tips_distance, self.src_mug_bps[None, :].expand(n, -1),
+        ], dim=-1)
+
+        # === LH target: hand fields inert (zero), object fields REAL
+        # (destination mug) -- see class docstring ===
+        dst_pos = qpos[:, self.dst_adr:self.dst_adr + 3]
+        dst_quat = qpos[:, self.dst_adr + 3:self.dst_adr + 7]
+        dst_vel = qvel[:, self.dst_dof_adr:self.dst_dof_adr + 3]
+        dst_ang_vel = qvel[:, self.dst_dof_adr + 3:self.dst_dof_adr + 6]
+        target_dst_pos = self.lh_target_pos
+        target_dst_quat = self.lh_target_quat
+        delta_dst_pos = target_dst_pos - dst_pos
+        delta_dst_vel = self.demo_dst_obj_vel[None, :] - dst_vel
+        delta_dst_quat = quat_mul(dst_quat, quat_conjugate(target_dst_quat))
+        delta_dst_ang_vel = self.demo_dst_obj_ang_vel[None, :] - dst_ang_vel
+
+        _z3 = torch.zeros(n, 3, device=self.device)
+        _z4 = torch.zeros(n, 4, device=self.device)
+        _z60 = torch.zeros(n, 60, device=self.device)
+        _z21 = torch.zeros(n, 21, device=self.device)
+        _z5 = torch.zeros(n, 5, device=self.device)
+
+        lh_target = torch.cat([
+            _z3, _z3, _z3,             # wrist pos/vel/delta_vel (inert)
+            _z4, _z4, _z3, _z3,        # wrist quat/delta_quat/ang_vel/delta_ang_vel (inert)
+            _z60, _z60, _z60,          # joints pos/vel/delta_vel (inert -- no LH joints)
+            delta_dst_pos, self.demo_dst_obj_vel[None, :].expand(n, -1), delta_dst_vel,
+            target_dst_quat.expand(n, -1), delta_dst_quat,
+            self.demo_dst_obj_ang_vel[None, :].expand(n, -1), delta_dst_ang_vel,
+            _z21, _z5, self.dst_mug_bps[None, :].expand(n, -1),
+        ], dim=-1)
 
         lh_proprio = torch.zeros_like(rh_proprio)
         lh_privileged = torch.zeros_like(rh_privileged)
-        lh_target = torch.zeros_like(rh_target)
 
         proprioception = torch.cat([rh_proprio, lh_proprio], dim=-1)
         privileged = torch.cat([rh_privileged, lh_privileged], dim=-1)
@@ -462,6 +537,8 @@ class MyoHandPourEnv:
             joints_vel = torch.zeros_like(joints_pos)
         else:
             joints_vel = (joints_pos - self.prev_body_xpos) / self.dt
+        self.current_joints_pos_ = joints_pos
+        self.current_joints_vel_ = joints_vel  # store for reuse in _compute_obs()
         self.prev_body_xpos = joints_pos.clone()
 
         current_dof_vel = qvel[:, self.dof_veladrs]
