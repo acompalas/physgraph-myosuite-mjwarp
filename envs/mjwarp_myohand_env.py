@@ -771,7 +771,18 @@ class MyoHandPourEnv:
             "time_outs": succeeded,
             "total_rewards": self.total_rewards,
             "total_steps": self.progress_buf,
-            "error_masks": error_buf,
+            # POLARITY FIX (2026-09-08): rl_games' own torch_ext.normalization_
+            # with_masks / get_mean_var_with_masks expects masks=1 to mean
+            # "valid, include this sample" (values*masks summed, divided by
+            # masks.sum()) -- we were passing error_buf directly (1=errored),
+            # the OPPOSITE polarity. Since most envs are healthy at any given
+            # step, that meant masks.sum()~=0 almost every single minibatch,
+            # a genuine 0/0 in rl_games' own get_mean_var_with_masks (no
+            # epsilon guard there at all) -- this, not policy collapse, was
+            # the real root cause of a_loss/c_loss/kl showing NaN from the
+            # very first recorded TensorBoard step, confirmed via a direct
+            # [NAN DEBUG] instrumentation of lib/rl/base.py's train_epoch().
+            "error_masks": ~error_buf,
         }
 
         return reward, dones, infos
