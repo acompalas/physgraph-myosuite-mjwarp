@@ -145,7 +145,12 @@ class MyoHandPourEnv:
         self.mj_model = base.compile()
 
         self.model = mjw.put_model(self.mj_model)
-        self.data = mjw.make_data(self.mj_model, nworld=num_envs, nconmax=num_envs * 50, njmax=num_envs * 130)  # real observed nefc need was ~102-106/env at num_envs=1 -- *200 caused a real GPU OOM at num_envs=1024 (one internal solver array alone requested ~15.9GB), reduced to a more realistic margin
+        self.data = mjw.make_data(
+            self.mj_model, nworld=num_envs, nconmax=num_envs * 50, njmax=num_envs * 130,
+            naccdmax=num_envs * 4, nccdmax=num_envs * 4,
+        )  # naccdmax/nccdmax explicit -- real GPU OOM at num_envs=256/1024 from an
+        # unbounded default MULTICCD buffer (multiccd_polygon), unrelated to
+        # njmax/nconmax; *4/env is a starting guess, may need tuning
 
         self.n_dofs_hand = 23
         self.dof_names = self._dof_names()
