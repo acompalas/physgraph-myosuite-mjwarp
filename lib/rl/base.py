@@ -1275,6 +1275,14 @@ class MyContinuousA2CBase(MyA2CBase):
                         advantages = self.advantage_mean_std(advantages)
                 else:
                     if error_masks is not None:
+                        # TEMP DEBUG: check for the all-errored-simultaneously
+                        # divide-by-zero case (torch_ext.get_mean_var_with_masks
+                        # has NO epsilon guard on sum_mask)
+                        _sum_mask = error_masks.sum().item()
+                        if _sum_mask < 2:
+                            print(f"[NAN DEBUG] error_masks.sum()={_sum_mask} "
+                                  f"(out of {error_masks.numel()}) -- advantage "
+                                  f"normalization about to divide by ~zero")
                         advantages = torch_ext.normalization_with_masks(advantages, error_masks)
                     else:
                         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
