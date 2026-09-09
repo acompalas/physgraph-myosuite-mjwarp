@@ -40,6 +40,18 @@ from omegaconf import DictConfig, OmegaConf
 import typing
 import torch as _torch
 import torch.nn as _nn
+
+# PyTorch 2.6+ changed torch.load's default weights_only from False to True
+# for security -- our own checkpoints (self-generated, trusted) contain
+# numpy scalar objects not on the new safe-globals allowlist by default,
+# causing a real load failure when resuming training. Patch the default
+# back to False globally, since we only ever load checkpoints we created
+# ourselves in this project.
+_original_torch_load = _torch.load
+def _patched_torch_load(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _original_torch_load(*args, **kwargs)
+_torch.load = _patched_torch_load
 from rl_games.algos_torch.running_mean_std import RunningMeanStd as _RunningMeanStd
 import rl_games.algos_torch.models as _rlg_models
 
