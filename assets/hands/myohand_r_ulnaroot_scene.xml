@@ -109,7 +109,7 @@
     <geom pos="0 6.95 2.1" quat="0.707388 0.706825 0 0" type="mesh" contype="0" conaffinity="0" group="1" material="matlogo" mesh="logo" />
     <geom size="1.05 0.205" pos="0 0 -0.19" type="cylinder" group="4" />
     <geom pos="0 0 -0.41326" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" material="matscene" mesh="meshscene" />
-    <geom name="floor" size="7 7 0.1" pos="0 0 -0.4" type="plane" group="1" material="matfloor" />
+    <geom name="floor" size="7 7 0.1" pos="0 0 -0.4" type="plane" group="1" material="matfloor" contype="1" conaffinity="1" />
     <body name="ulna_r" childclass="myoarm_elbow" pos="0.266323 -0.007384 0.128377" quat="0.707388 0.040962 -0.030113 0.704994">
                       <inertial pos="0.00971783 -0.0959509 0.024286" quat="0.792048 0.609078 0.0156735 0.0379256" mass="1.1053" diaginertia="0.00543663 0.00523521 0.001" />
                       <geom name="ulna_r" type="mesh" mesh="ulna_r" />
