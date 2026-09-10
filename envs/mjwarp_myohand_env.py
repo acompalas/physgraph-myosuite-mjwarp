@@ -193,7 +193,13 @@ class MyoHandPourEnv:
         # real source-mug trajectory (part of the rh demo dict -- that's
         # the object the right hand actually manipulates)
         self.demo_src_obj_traj = correct_obj_traj(self._to_tensor(self.rh_demo["obj_trajectory"]), self._axis_C)
-        self.demo_dst_obj_traj0 = correct_obj_traj(self._to_tensor(self.lh_demo["obj_trajectory"][0:1]), self._axis_C)[0]
+        # NOTE: unlike rh (src mug + wrist), lh_stationary's obj_trajectory
+        # does NOT need the axis correction -- confirmed numerically 2026-
+        # 09-10: its raw, uncorrected "up" direction already points to
+        # (0,0,1) essentially exactly. The two demo sources were packed
+        # with different/inconsistent conventions. Applying C here
+        # actively breaks an already-correct orientation.
+        self.demo_dst_obj_traj0 = self._to_tensor(self.lh_demo["obj_trajectory"][0])
 
         hand_xml = os.path.join(repo_root, "assets/hands/myohand_r_ulnaroot_scene.xml")
         mug_src_xml = os.path.join(repo_root, "assets/objects/O02@0015@00020/O02@0015@00020.xml")
