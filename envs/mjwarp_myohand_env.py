@@ -87,6 +87,39 @@ def quat_conjugate(q):
     return torch.cat([q[..., 0:1], -q[..., 1:]], dim=-1)
 
 
+def axis_correction_matrix(device):
+    """Real axis-correction matrix (Rz(-90)@Rx(90)) needed to convert
+    obj_trajectory (sourced from the original raw mocap dataset, never
+    re-solved into our MJCF scene's own frame the way opt_wrist_pos/rot
+    were via retargeting optimization) into our scene's coordinate
+    convention. Confirmed as a real, necessary fix 2026-09-10 via direct
+    kinematic playback: without this, the mug genuinely renders on its
+    side at frame 0 (not upright), matching the same wrong-orientation
+    behavior seen in the real physics-based live eval -- proven to be a
+    pure data/coordinate issue since the kinematic playback used zero
+    physics. A pure rotation/permutation matrix, applied to both the
+    position and rotation submatrix of each frame's full 4x4 transform,
+    never combining raw components separately (see project notes' own
+    established coordinate-frame gotcha from the retargeting phase)."""
+    rz = torch.tensor([[0.,1.,0.],[-1.,0.,0.],[0.,0.,1.]], device=device)
+    rx = torch.tensor([[1.,0.,0.],[0.,0.,-1.],[0.,1.,0.]], device=device)
+    return rz @ rx
+
+
+def correct_obj_traj(traj, C):
+    """Apply the axis-correction matrix to a full (T,4,4) trajectory of
+    object transforms -- corrects position and rotation together per
+    frame, not as separately-combined components."""
+    pos = traj[:, :3, 3]
+    rot = traj[:, :3, :3]
+    corrected_pos = (C @ pos.T).T
+    corrected_rot = C[None] @ rot
+    out = traj.clone()
+    out[:, :3, 3] = corrected_pos
+    out[:, :3, :3] = corrected_rot
+    return out
+
+
 def quat_rotate_vec(q, v):
     """Rotate vector v (..., 3) by quaternion q (..., 4), [w,x,y,z]
     convention. Standard closed-form quat-vector rotation, needed for
@@ -128,7 +161,9 @@ class MyoHandPourEnv:
         self.demo_opt_dof_pos = self._to_tensor(self.rh_demo["opt_dof_pos"])
         # real source-mug trajectory (part of the rh demo dict -- that's
         # the object the right hand actually manipulates)
-        self.demo_src_obj_traj = self._to_tensor(self.rh_demo["obj_trajectory"])
+        self._axis_C = axis_correction_matrix(self.device)
+        self.demo_src_obj_traj = correct_obj_traj(self._to_tensor(self.rh_demo["obj_trajectory"]), self._axis_C)
+        self.demo_dst_obj_traj0 = correct_obj_traj(self._to_tensor(self.lh_demo["obj_trajectory"][0:1]), self._axis_C)[0]
 
         hand_xml = os.path.join(repo_root, "assets/hands/myohand_r_ulnaroot_scene.xml")
         mug_src_xml = os.path.join(repo_root, "assets/objects/O02@0015@00020/O02@0015@00020.xml")
@@ -248,7 +283,7 @@ class MyoHandPourEnv:
 
         # destination mug's fixed TARGET pose -- matches what reset()
         # already uses to place it (frame 0 of the static trajectory)
-        dst_pose0 = self._to_tensor(self.lh_demo["obj_trajectory"][0])
+        dst_pose0 = self.demo_dst_obj_traj0
         self.lh_target_pos = dst_pose0[:3, 3][None, :]
         self.lh_target_quat = rotmat_to_quat(dst_pose0[:3, :3][None])
 
@@ -366,7 +401,7 @@ class MyoHandPourEnv:
         opt_wrist_rot0 = self.demo_opt_wrist_rot[0]
         opt_dof_pos0 = self.demo_opt_dof_pos[0]
         src_pose0 = self.demo_src_obj_traj[0]
-        dst_pose0 = self._to_tensor(self.lh_demo["obj_trajectory"][0])
+        dst_pose0 = self.demo_dst_obj_traj0
 
         qpos[env_ids, self.root_adr:self.root_adr + 3] = opt_wrist_pos0
         qpos[env_ids, self.root_adr + 3:self.root_adr + 7] = aa_to_quat(opt_wrist_rot0[None])[0]
