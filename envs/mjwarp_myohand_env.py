@@ -87,6 +87,26 @@ def quat_conjugate(q):
     return torch.cat([q[..., 0:1], -q[..., 1:]], dim=-1)
 
 
+def aa_to_rotmat(aa):
+    """Axis-angle -> rotation matrix (Rodrigues' formula), matching
+    the real kinematic playback script's own numpy implementation
+    exactly, needed to apply axis_correction_matrix to wrist rotation
+    data (which is stored as axis-angle, not quaternion/rotmat)."""
+    theta = torch.norm(aa, dim=-1, keepdim=True)
+    theta_c = torch.clamp(theta, min=1e-8)
+    axis = aa / theta_c
+    x, y, z = axis[..., 0], axis[..., 1], axis[..., 2]
+    zero = torch.zeros_like(x)
+    K = torch.stack([
+        torch.stack([zero, -z, y], dim=-1),
+        torch.stack([z, zero, -x], dim=-1),
+        torch.stack([-y, x, zero], dim=-1),
+    ], dim=-2)
+    I = torch.eye(3, device=aa.device).expand(aa.shape[:-1] + (3, 3))
+    th = theta[..., None]
+    return I + torch.sin(th) * K + (1 - torch.cos(th)) * (K @ K)
+
+
 def axis_correction_matrix(device):
     """Real axis-correction matrix (Rz(-90)@Rx(90)) needed to convert
     obj_trajectory (sourced from the original raw mocap dataset, never
@@ -156,12 +176,22 @@ class MyoHandPourEnv:
         self.seq_len = self.rh_demo["opt_dof_pos"].shape[0]
         self.max_episode_length = max_episode_length or self.seq_len
 
-        self.demo_opt_wrist_pos = self._to_tensor(self.rh_demo["opt_wrist_pos"])
-        self.demo_opt_wrist_rot = self._to_tensor(self.rh_demo["opt_wrist_rot"])
+        # THE real fix (2026-09-10): opt_wrist_pos/rot need the SAME axis
+        # correction as obj_trajectory. Confirmed directly against the real
+        # kinematic playback script (playback_full_scene.py) -- it applies
+        # C to BOTH wrist AND object data, not object alone. My first pass
+        # at this fix only corrected obj_trajectory, leaving wrist
+        # uncorrected -- explains why hand+mug looked internally consistent
+        # with each other (both in the same wrong frame) but still wrong
+        # relative to the real floor/world convention.
+        self._axis_C = axis_correction_matrix(self.device)
+        _raw_wrist_pos = self._to_tensor(self.rh_demo["opt_wrist_pos"])
+        _raw_wrist_rot_aa = self._to_tensor(self.rh_demo["opt_wrist_rot"])
+        self.demo_opt_wrist_pos = (self._axis_C @ _raw_wrist_pos.T).T
+        self.demo_opt_wrist_quat = rotmat_to_quat(self._axis_C[None] @ aa_to_rotmat(_raw_wrist_rot_aa))
         self.demo_opt_dof_pos = self._to_tensor(self.rh_demo["opt_dof_pos"])
         # real source-mug trajectory (part of the rh demo dict -- that's
         # the object the right hand actually manipulates)
-        self._axis_C = axis_correction_matrix(self.device)
         self.demo_src_obj_traj = correct_obj_traj(self._to_tensor(self.rh_demo["obj_trajectory"]), self._axis_C)
         self.demo_dst_obj_traj0 = correct_obj_traj(self._to_tensor(self.lh_demo["obj_trajectory"][0:1]), self._axis_C)[0]
 
@@ -398,13 +428,13 @@ class MyoHandPourEnv:
         qvel = wp.to_torch(self.data.qvel)
 
         opt_wrist_pos0 = self.demo_opt_wrist_pos[0]
-        opt_wrist_rot0 = self.demo_opt_wrist_rot[0]
+        opt_wrist_quat0 = self.demo_opt_wrist_quat[0]
         opt_dof_pos0 = self.demo_opt_dof_pos[0]
         src_pose0 = self.demo_src_obj_traj[0]
         dst_pose0 = self.demo_dst_obj_traj0
 
         qpos[env_ids, self.root_adr:self.root_adr + 3] = opt_wrist_pos0
-        qpos[env_ids, self.root_adr + 3:self.root_adr + 7] = aa_to_quat(opt_wrist_rot0[None])[0]
+        qpos[env_ids, self.root_adr + 3:self.root_adr + 7] = opt_wrist_quat0
         qpos[env_ids[:, None], self.dof_adrs] = opt_dof_pos0
 
         qpos[env_ids, self.src_adr:self.src_adr + 3] = src_pose0[:3, 3]
@@ -521,7 +551,7 @@ class MyoHandPourEnv:
         n = self.num_envs
 
         target_wrist_pos = self.demo_opt_wrist_pos[idx]
-        target_wrist_quat = aa_to_quat(self.demo_opt_wrist_rot[idx])
+        target_wrist_quat = self.demo_opt_wrist_quat[idx]
         target_wrist_vel = self.demo_wrist_vel[idx]
         target_wrist_ang_vel = self.demo_wrist_ang_vel[idx]
         delta_wrist_pos = target_wrist_pos - wrist_pos
@@ -669,7 +699,7 @@ class MyoHandPourEnv:
 
         # === target state (current frame, NOT the observation's lookahead) ===
         target_eef_pos = self.demo_opt_wrist_pos[cur_idx]
-        target_eef_quat = aa_to_quat(self.demo_opt_wrist_rot[cur_idx])
+        target_eef_quat = self.demo_opt_wrist_quat[cur_idx]
         target_joints_pos = self.demo_target_joints_pos[cur_idx]
         target_obj_pos = self.demo_src_obj_traj[cur_idx, :3, 3]
         target_obj_quat = rotmat_to_quat(self.demo_src_obj_traj[cur_idx, :3, :3])
