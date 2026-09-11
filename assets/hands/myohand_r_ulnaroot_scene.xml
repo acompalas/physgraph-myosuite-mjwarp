@@ -1,6 +1,14 @@
 <mujoco model="myohand_r_from_myoarm_r">
   <compiler angle="radian" meshdir="../../third_party/myo_sim/myo_sim/models/" texturedir="../../third_party/myo_sim/myo_sim/models/" />
 
+  <!-- Real, confirmed dt fix (2026-09-10): PhysGraph's own real sim config
+       (main/cfg/task/ResDexHand.yaml) uses dt=1/60, exactly matching their
+       own demo compute_velocity() rate. Ours was silently defaulting to
+       MuJoCo's 0.002 (500Hz), ~8.3x finer than the demo's real 60Hz --
+       meaning progress_buf was advancing through the demo ~8.3x too fast
+       relative to real recorded motion. Setting explicitly to match. -->
+  <option timestep="0.0166667" />
+
   <default>
     <geom contype="0" conaffinity="0" />
 
