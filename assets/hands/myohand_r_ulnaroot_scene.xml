@@ -7,7 +7,15 @@
        MuJoCo's 0.002 (500Hz), ~8.3x finer than the demo's real 60Hz --
        meaning progress_buf was advancing through the demo ~8.3x too fast
        relative to real recorded motion. Setting explicitly to match. -->
-  <option timestep="0.0166667" />
+  <!-- Real, matched two-level structure (2026-09-11): PhysGraph's own
+       sim uses dt=1/60 with substeps=2 -- raw physics integrates at
+       dt/substeps=1/120=0.00833s internally (twice per outer step),
+       controls/reward/progress_buf update once per OUTER 1/60 step.
+       A single, coarser 1/60 raw timestep caused genuine contact
+       resolution failure (confirmed: objects sink through floor even
+       with zero policy action and naccdmax fixed) and detuned PID/
+       muscle dynamics. -->
+  <option timestep="0.00833335" />
 
   <default>
     <geom contype="0" conaffinity="0" />
@@ -115,7 +123,7 @@
     <camera name="front_view" pos="0 -3 2.25" quat="0.850651 0.525731 0 0" mode="trackcom" />
     <camera name="side_view" pos="-3 0 2.25" quat="0.601501 0.371748 -0.371748 -0.601501" mode="trackcom" />
     <geom pos="0 6.95 2.1" quat="0.707388 0.706825 0 0" type="mesh" contype="0" conaffinity="0" group="1" material="matlogo" mesh="logo" />
-    <geom size="1.05 0.205" pos="0 0 -0.19" type="cylinder" group="4" />
+    <geom size="1.05 0.205" pos="0 0 -0.19" type="cylinder" group="4" contype="1" conaffinity="1" />
     <geom pos="0 0 -0.41326" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" material="matscene" mesh="meshscene" />
     <geom name="floor" size="7 7 0.1" pos="0 0 -0.4" type="plane" group="1" material="matfloor" contype="1" conaffinity="1" />
     <body name="ulna_r" childclass="myoarm_elbow" pos="0.266323 -0.007384 0.128377" quat="0.707388 0.040962 -0.030113 0.704994">
