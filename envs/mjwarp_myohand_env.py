@@ -291,15 +291,28 @@ class MyoHandPourEnv:
         # original pre-retargeting human wrist_velocity/wrist_angular_
         # velocity fields (a different, also-present pair -- confirmed
         # both exist, opt_ ones are the consistent choice for us).
-        self.demo_wrist_vel = self._to_tensor(self.rh_demo["opt_wrist_velocity"])
-        self.demo_wrist_ang_vel = self._to_tensor(self.rh_demo["opt_wrist_angular_velocity"])
+        # THE real fix (2026-09-13): velocity fields need the SAME axis
+        # correction C as position/rotation -- mathematically exact, not
+        # an estimation: velocity is defined as d/dt[position], C is a
+        # constant (time-independent) matrix, so by linearity of
+        # differentiation d/dt[C@pos] = C@d/dt[pos] = C@velocity exactly.
+        # Confirmed the one needed precondition holds: PhysGraph's own
+        # real compute_velocity() computes this as np.gradient() directly
+        # on the same raw position array, so it genuinely IS a derivative
+        # of the raw (uncorrected) position data.
+        _raw_wrist_vel = self._to_tensor(self.rh_demo["opt_wrist_velocity"])
+        _raw_wrist_ang_vel = self._to_tensor(self.rh_demo["opt_wrist_angular_velocity"])
+        self.demo_wrist_vel = (self._axis_C @ _raw_wrist_vel.T).T
+        self.demo_wrist_ang_vel = (self._axis_C @ _raw_wrist_ang_vel.T).T
 
         mano_joints_vel = self.rh_demo["mano_joints_velocity"]
         joints_vel_list = [mano_joints_vel[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
         self.demo_joints_vel = torch.stack(joints_vel_list, dim=1).to(device=self.device, dtype=torch.float32)
 
-        self.demo_src_obj_vel = self._to_tensor(self.rh_demo["obj_velocity"])
-        self.demo_src_obj_ang_vel = self._to_tensor(self.rh_demo["obj_angular_velocity"])
+        _raw_src_obj_vel = self._to_tensor(self.rh_demo["obj_velocity"])
+        _raw_src_obj_ang_vel = self._to_tensor(self.rh_demo["obj_angular_velocity"])
+        self.demo_src_obj_vel = (self._axis_C @ _raw_src_obj_vel.T).T
+        self.demo_src_obj_ang_vel = (self._axis_C @ _raw_src_obj_ang_vel.T).T
 
         # destination mug is static -- target velocity is genuinely zero
         # every frame (no corresponding real field exists since our own
