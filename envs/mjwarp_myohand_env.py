@@ -224,7 +224,7 @@ class MyoHandPourEnv:
             # num_envs=1 (eval) there is no pooling benefit, this one
             # env alone needs the real per-env requirement (~100-106,
             # confirmed earlier this project), not a tiny multiple of 1
-            naccdmax=num_envs * 6, nccdmax=num_envs * 6,
+            naccdmax=num_envs * 36, nccdmax=num_envs * 36,
         )  # naccdmax/nccdmax explicit -- real GPU OOM at num_envs=256/1024 from an
         # unbounded default MULTICCD buffer (multiccd_polygon), unrelated to
         # njmax/nconmax; *4/env is a starting guess, may need tuning
