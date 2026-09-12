@@ -217,14 +217,14 @@ class MyoHandPourEnv:
 
         self.model = mjw.put_model(self.mj_model)
         self.data = mjw.make_data(
-            self.mj_model, nworld=num_envs, nconmax=max(num_envs * 20, 100), njmax=max(num_envs * 4, 150),
+            self.mj_model, nworld=num_envs, nconmax=max(num_envs * 26, 100), njmax=max(num_envs * 4, 150),
             # floors added: the *8/*4 multipliers only work at training
             # scale (contacts/constraints share a global pool across
             # many envs, not every env peaks simultaneously) -- at
             # num_envs=1 (eval) there is no pooling benefit, this one
             # env alone needs the real per-env requirement (~100-106,
             # confirmed earlier this project), not a tiny multiple of 1
-            naccdmax=num_envs * 20, nccdmax=num_envs * 20,
+            naccdmax=num_envs * 26, nccdmax=num_envs * 26,
         )  # naccdmax/nccdmax explicit -- real GPU OOM at num_envs=256/1024 from an
         # unbounded default MULTICCD buffer (multiccd_polygon), unrelated to
         # njmax/nconmax; *4/env is a starting guess, may need tuning
