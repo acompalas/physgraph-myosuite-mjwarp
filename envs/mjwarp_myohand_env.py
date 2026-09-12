@@ -224,7 +224,7 @@ class MyoHandPourEnv:
             # num_envs=1 (eval) there is no pooling benefit, this one
             # env alone needs the real per-env requirement (~100-106,
             # confirmed earlier this project), not a tiny multiple of 1
-            naccdmax=max(num_envs * 6, 100), nccdmax=max(num_envs * 6, 100),
+            naccdmax=num_envs * 6, nccdmax=num_envs * 6,
         )  # naccdmax/nccdmax explicit -- real GPU OOM at num_envs=256/1024 from an
         # unbounded default MULTICCD buffer (multiccd_polygon), unrelated to
         # njmax/nconmax; *4/env is a starting guess, may need tuning
@@ -896,6 +896,12 @@ class MyoHandPourEnv:
         ctrl = wp.to_torch(self.data.ctrl)
         ctrl[:, :] = muscle_activations
 
+        # Two-level structure matching PhysGraph's real sim (dt=1/60,
+        # substeps=2): raw physics integrates at the finer inner rate
+        # (this model's timestep, 1/120) TWICE per outer env.step() call,
+        # controls/reward/progress_buf update once at the coarser outer
+        # (1/60) rate.
+        mjw.step(self.model, self.data)
         mjw.step(self.model, self.data)
 
         self.progress_buf += 1
