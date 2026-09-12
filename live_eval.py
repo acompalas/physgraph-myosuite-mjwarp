@@ -17,7 +17,7 @@ sys.path.insert(0, ".")
 from envs.mjwarp_myohand_env import MyoHandPourEnv
 from lib.rl.network_builder_myohand_transformer import MyoHandTransformerNetwork
 
-CHECKPOINT_PATH = "eval_checkpoints/best.pth"
+CHECKPOINT_PATH = "eval_checkpoints/best_dtfix.pth"
 DEVICE = "cuda:0"
 
 

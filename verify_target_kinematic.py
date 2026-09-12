@@ -48,8 +48,14 @@ def main():
 
             mujoco.mj_forward(env.mj_model, mj_data)
             viewer.sync()
-            frame = (frame + 1) % n_frames
+            frame += 1
             import time
+            if frame == 1:
+                _start_time = time.time()
+            if frame == n_frames:
+                elapsed = time.time() - _start_time
+                print(f'REAL measured: {n_frames} frames in {elapsed:.2f}s = {n_frames/elapsed:.2f} actual fps')
+            frame = frame % n_frames
             time.sleep(1.0 / 30.0)
 
 

@@ -7,15 +7,17 @@
        MuJoCo's 0.002 (500Hz), ~8.3x finer than the demo's real 60Hz --
        meaning progress_buf was advancing through the demo ~8.3x too fast
        relative to real recorded motion. Setting explicitly to match. -->
-  <!-- Real, matched two-level structure (2026-09-11): PhysGraph's own
-       sim uses dt=1/60 with substeps=2 -- raw physics integrates at
-       dt/substeps=1/120=0.00833s internally (twice per outer step),
-       controls/reward/progress_buf update once per OUTER 1/60 step.
-       A single, coarser 1/60 raw timestep caused genuine contact
-       resolution failure (confirmed: objects sink through floor even
-       with zero policy action and naccdmax fixed) and detuned PID/
-       muscle dynamics. -->
-  <option timestep="0.00833335" />
+  <!-- Real, confirmed dt fix (2026-09-11): PhysGraph's own
+       controlFrequencyInv defaults to 1, never overridden -- gym.
+       simulate() called exactly once per env.step(), using dt=1/60
+       directly as the raw physics integration step. substeps=2 is a
+       purely internal PhysX solver detail (subdividing that single
+       call for accuracy), not a separate RL-visible step -- does not
+       need replicating via multiple mjw.step() calls. The earlier
+       sinking-through-floor symptom was fully explained by a separate,
+       unrelated bug (an unnamed pedestal cylinder geom with zero
+       collision capability), not by dt/substeps at all. -->
+  <option timestep="0.0166667" />
 
   <default>
     <geom contype="0" conaffinity="0" />

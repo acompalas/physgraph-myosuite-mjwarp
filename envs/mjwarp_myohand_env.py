@@ -896,12 +896,16 @@ class MyoHandPourEnv:
         ctrl = wp.to_torch(self.data.ctrl)
         ctrl[:, :] = muscle_activations
 
-        # Two-level structure matching PhysGraph's real sim (dt=1/60,
-        # substeps=2): raw physics integrates at the finer inner rate
-        # (this model's timestep, 1/120) TWICE per outer env.step() call,
-        # controls/reward/progress_buf update once at the coarser outer
-        # (1/60) rate.
-        mjw.step(self.model, self.data)
+        # Real, confirmed structure (2026-09-11): PhysGraph's own
+        # controlFrequencyInv defaults to 1 and is never overridden in
+        # any of their real task configs -- gym.simulate() is called
+        # EXACTLY ONCE per env.step(), using dt=1/60 directly as that
+        # single call's physics integration step. substeps=2 is purely
+        # an INTERNAL PhysX solver detail (subdividing that one 1/60
+        # step for numerical accuracy), not something the RL/env code
+        # calls or sees separately -- my earlier "call mjw.step() twice"
+        # fix was a genuine misunderstanding of what substeps means and
+        # has been reverted.
         mjw.step(self.model, self.data)
 
         self.progress_buf += 1
