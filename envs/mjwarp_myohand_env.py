@@ -217,14 +217,14 @@ class MyoHandPourEnv:
 
         self.model = mjw.put_model(self.mj_model)
         self.data = mjw.make_data(
-            self.mj_model, nworld=num_envs, nconmax=max(num_envs * 50, 1000), njmax=max(num_envs * 4, 1000),
+            self.mj_model, nworld=num_envs, nconmax=max(num_envs * 50, 5000), njmax=max(num_envs * 4, 5000),
             # floors added: the *8/*4 multipliers only work at training
             # scale (contacts/constraints share a global pool across
             # many envs, not every env peaks simultaneously) -- at
             # num_envs=1 (eval) there is no pooling benefit, this one
             # env alone needs the real per-env requirement (~100-106,
             # confirmed earlier this project), not a tiny multiple of 1
-            naccdmax=max(num_envs * 50, 1000), nccdmax=max(num_envs * 50, 1000),
+            naccdmax=max(num_envs * 50, 5000), nccdmax=max(num_envs * 50, 5000),
         )  # naccdmax/nccdmax explicit -- real GPU OOM at num_envs=256/1024 from an
         # unbounded default MULTICCD buffer (multiccd_polygon), unrelated to
         # njmax/nconmax; *4/env is a starting guess, may need tuning
@@ -278,7 +278,17 @@ class MyoHandPourEnv:
         # not our own retargeted opt_dof_pos values
         mano_joints = self.rh_demo["mano_joints"]
         target_joints_list = [mano_joints[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
-        self.demo_target_joints_pos = torch.stack(target_joints_list, dim=1).to(device=self.device, dtype=torch.float32)
+        _raw_target_joints_pos = torch.stack(target_joints_list, dim=1).to(device=self.device, dtype=torch.float32)
+        # Real fix (2026-09-14): mano_joints is a real position quantity
+        # (real human MANO joint positions), loaded raw with no axis
+        # correction the whole time -- same bug class as wrist/obj_
+        # trajectory/velocity, just missed in the earlier passes. Directly
+        # confirmed as the actual cause of episode_lengths staying flat
+        # at 8 the entire prior training run: finger tip distances were
+        # ~0.37-0.45m (vs a ~0.05-0.06m failure threshold) from step 0,
+        # never improving, while obj_pos/obj_rot tracking was genuinely
+        # fine throughout.
+        self.demo_target_joints_pos = (self._axis_C @ _raw_target_joints_pos.reshape(-1, 3).T).T.reshape(_raw_target_joints_pos.shape)
 
         # target VELOCITIES -- REAL fields from the original demo data
         # (not finite-differenced from our own retargeted trajectory).
@@ -788,6 +798,13 @@ class MyoHandPourEnv:
             | (torch.norm(current_obj_vel, dim=-1) > 100)
             | (torch.norm(current_obj_ang_vel, dim=-1) > 200)
         )
+        self._debug_diffs = {
+            "obj_pos": diff_obj_pos_dist, "thumb": diff_thumb_tip_pos_dist,
+            "index": diff_index_tip_pos_dist, "middle": diff_middle_tip_pos_dist,
+            "pinky": diff_pinky_tip_pos_dist, "ring": diff_ring_tip_pos_dist,
+            "level_1": diff_level_1_pos_dist, "level_2": diff_level_2_pos_dist,
+            "obj_rot_deg": diff_obj_rot_angle.abs() / np.pi * 180,
+        }
         failed_execute = (
             (
                 (diff_obj_pos_dist > 0.02 / 0.343 * scale_factor ** 3)
