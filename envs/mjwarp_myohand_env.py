@@ -317,7 +317,11 @@ class MyoHandPourEnv:
 
         mano_joints_vel = self.rh_demo["mano_joints_velocity"]
         joints_vel_list = [mano_joints_vel[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
-        self.demo_joints_vel = torch.stack(joints_vel_list, dim=1).to(device=self.device, dtype=torch.float32)
+        _raw_joints_vel = torch.stack(joints_vel_list, dim=1).to(device=self.device, dtype=torch.float32)
+        # Same fix as mano_joints (position) -- this is its velocity
+        # counterpart, d/dt[mano_joints], needs the identical C
+        # correction by the same linearity-of-differentiation argument.
+        self.demo_joints_vel = (self._axis_C @ _raw_joints_vel.reshape(-1, 3).T).T.reshape(_raw_joints_vel.shape)
 
         _raw_src_obj_vel = self._to_tensor(self.rh_demo["obj_velocity"])
         _raw_src_obj_ang_vel = self._to_tensor(self.rh_demo["obj_angular_velocity"])
