@@ -17,7 +17,7 @@
        sinking-through-floor symptom was fully explained by a separate,
        unrelated bug (an unnamed pedestal cylinder geom with zero
        collision capability), not by dt/substeps at all. -->
-  <option timestep="0.0166667" />
+    <option timestep="0.0166667" />
 
   <default>
     <geom contype="0" conaffinity="0" />
@@ -25,7 +25,11 @@
     <tendon width="0.001" rgba="0.95 0.3 0.3 41" />
     <default class="myoarm">
       <joint limited="true" armature="0.0001" damping="1.05" />
-      <geom margin="0.001" rgba="0.8 0.8 0.8 1" />
+      <!-- Real friction value from Runfa's confirmed-working MuJoCo-Warp
+           ArtiMANO reference (exo_bimanual_scene.xml): hand geoms use
+           friction of 4/0.01/0.01, vs. MuJoCo's generic default
+           (1/0.005/0.0001) we had been using unintentionally. -->
+      <geom margin="0.001" rgba="0.8 0.8 0.8 1" friction="4 0.01 0.01" solref="0.01 1" solimp="0.95 0.99 0.001" />
       <site size="0.0025 0.005 0.005" group="3" />
 
       <tendon width="0.003" />
@@ -125,9 +129,9 @@
     <camera name="front_view" pos="0 -3 2.25" quat="0.850651 0.525731 0 0" mode="trackcom" />
     <camera name="side_view" pos="-3 0 2.25" quat="0.601501 0.371748 -0.371748 -0.601501" mode="trackcom" />
     <geom pos="0 6.95 2.1" quat="0.707388 0.706825 0 0" type="mesh" contype="0" conaffinity="0" group="1" material="matlogo" mesh="logo" />
-    <geom size="1.05 0.205" pos="0 0 -0.19" type="cylinder" group="4" contype="1" conaffinity="1" />
+    <geom size="1.05 0.205" pos="0 0 -0.19" type="cylinder" group="4" contype="1" conaffinity="1" friction="0.1 0.02 0.01" />
     <geom pos="0 0 -0.41326" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" material="matscene" mesh="meshscene" />
-    <geom name="floor" size="7 7 0.1" pos="0 0 -0.4" type="plane" group="1" material="matfloor" contype="1" conaffinity="1" />
+    <geom name="floor" size="7 7 0.1" pos="0 0 -0.4" type="plane" group="1" material="matfloor" contype="1" conaffinity="1" friction="0.1 0.02 0.01" />
     <body name="ulna_r" childclass="myoarm_elbow" pos="0.266323 -0.007384 0.128377" quat="0.707388 0.040962 -0.030113 0.704994">
                       <inertial pos="0.00971783 -0.0959509 0.024286" quat="0.792048 0.609078 0.0156735 0.0379256" mass="1.1053" diaginertia="0.00543663 0.00523521 0.001" />
                       <geom name="ulna_r" type="mesh" mesh="ulna_r" />

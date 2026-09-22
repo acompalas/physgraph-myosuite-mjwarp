@@ -2,7 +2,7 @@
   <compiler meshdir="parts" angle="radian"/>
   <default>
     <default class="collision">
-      <geom group="3" contype="1" conaffinity="1" rgba="0.7 0.5 0.3 1"/>
+      <geom group="3" contype="1" conaffinity="1" rgba="0.7 0.5 0.3 1" friction="3 0.03 0.03" solref="0.01 1" solimp="0.95 0.99 0.001"/>
     </default>
   </default>
   <asset>
