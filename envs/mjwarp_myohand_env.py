@@ -217,7 +217,7 @@ class MyoHandPourEnv:
 
         self.model = mjw.put_model(self.mj_model)
         self.data = mjw.make_data(
-            self.mj_model, nworld=num_envs, nconmax=max(num_envs * 50, 5000), njmax=max(num_envs * 4, 5000),
+            self.mj_model, nworld=num_envs, nconmax=max(num_envs * 100, 5000), njmax=max(num_envs * 4, 5000),
             # floors added: the *8/*4 multipliers only work at training
             # scale (contacts/constraints share a global pool across
             # many envs, not every env peaks simultaneously) -- at
