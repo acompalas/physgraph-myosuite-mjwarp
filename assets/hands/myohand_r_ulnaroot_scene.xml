@@ -17,7 +17,7 @@
        sinking-through-floor symptom was fully explained by a separate,
        unrelated bug (an unnamed pedestal cylinder geom with zero
        collision capability), not by dt/substeps at all. -->
-    <option timestep="0.0166667" />
+    <option timestep="0.00833333333333" integrator="implicitfast" cone="elliptic" impratio="10" />
 
   <default>
     <geom contype="0" conaffinity="0" />
@@ -29,7 +29,7 @@
            ArtiMANO reference (exo_bimanual_scene.xml): hand geoms use
            friction of 4/0.01/0.01, vs. MuJoCo's generic default
            (1/0.005/0.0001) we had been using unintentionally. -->
-      <geom margin="0.001" rgba="0.8 0.8 0.8 1" friction="4 0.01 0.01" solref="0.01 1" solimp="0.95 0.99 0.001" />
+      <geom margin="0.001" rgba="0.8 0.8 0.8 1" friction="4 0.01 0.01" solref="0.01 1" solimp="0.95 0.99 0.001" condim="6" />
       <site size="0.0025 0.005 0.005" group="3" />
 
       <tendon width="0.003" />

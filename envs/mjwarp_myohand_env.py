@@ -274,10 +274,19 @@ class MyoHandPourEnv:
         dexhand = MyoHandR()
         # real target joint positions, in OUR body_names[1:] order
         # (excluding wrist), matching PhysGraph's pack_data flattening
-        # logic exactly -- these are the REAL human MANO joint targets,
-        # not our own retargeted opt_dof_pos values
-        mano_joints = self.rh_demo["mano_joints"]
-        target_joints_list = [mano_joints[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
+        # logic exactly.
+        # Switched (2026-10-03) from raw MANO (human) joint positions to
+        # MyoHand's OWN retargeted joint positions (myo_joints, precomputed
+        # via real MuJoCo FK on opt_wrist_pos/opt_wrist_rot/opt_dof_pos by
+        # scripts/retargeting/compute_myo_joints.py). Confirmed via
+        # scripts/retargeting/diagnose_fingertip_gap.py that raw MANO and
+        # MyoHand's own retargeted fingertip positions disagree substantially
+        # for thumb_tip (mean 4.88cm, max 7.01cm -- larger than the mug's
+        # 5.26cm radius) and pinky_tip (mean 2.14cm), while index/middle/
+        # ring agree closely (<2.3cm) -- the reward now tracks what MyoHand's
+        # own embodiment can actually achieve, not the human's.
+        myo_joints = self.rh_demo["myo_joints"]
+        target_joints_list = [myo_joints[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
         _raw_target_joints_pos = torch.stack(target_joints_list, dim=1).to(device=self.device, dtype=torch.float32)
         # Real fix (2026-09-14): mano_joints is a real position quantity
         # (real human MANO joint positions), loaded raw with no axis
@@ -315,11 +324,14 @@ class MyoHandPourEnv:
         self.demo_wrist_vel = (self._axis_C @ _raw_wrist_vel.T).T
         self.demo_wrist_ang_vel = (self._axis_C @ _raw_wrist_ang_vel.T).T
 
-        mano_joints_vel = self.rh_demo["mano_joints_velocity"]
-        joints_vel_list = [mano_joints_vel[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
+        # Velocity counterpart of the myo_joints switch above -- same
+        # precompute script, same np.gradient convention PhysGraph itself
+        # uses for compute_velocity().
+        myo_joints_vel = self.rh_demo["myo_joints_velocity"]
+        joints_vel_list = [myo_joints_vel[dexhand.to_hand(b)[0]] for b in self.body_names[1:]]
         _raw_joints_vel = torch.stack(joints_vel_list, dim=1).to(device=self.device, dtype=torch.float32)
-        # Same fix as mano_joints (position) -- this is its velocity
-        # counterpart, d/dt[mano_joints], needs the identical C
+        # Same axis correction as the position target above -- this is
+        # its velocity counterpart, d/dt[myo_joints], needs the identical C
         # correction by the same linearity-of-differentiation argument.
         self.demo_joints_vel = (self._axis_C @ _raw_joints_vel.reshape(-1, 3).T).T.reshape(_raw_joints_vel.shape)
 
@@ -379,7 +391,9 @@ class MyoHandPourEnv:
         # dexhands/artimano_real.py) -- NOT yet tuned for MyoHand
         self.Kp_pos, self.Ki_pos, self.Kd_pos = 10.0, 0.003, 0.5
         self.Kp_rot, self.Ki_rot, self.Kd_rot = 0.3, 0.01, 0.005
-        self.dt = self.mj_model.opt.timestep
+        self.physics_substeps = 2
+        self.sim_dt = self.mj_model.opt.timestep      # raw physics integration step (1/120)
+        self.dt = self.sim_dt * self.physics_substeps  # control/demo cadence (1/60)
         self.pos_error_integral = torch.zeros(num_envs, 3, device=device)
         self.prev_pos_error = torch.zeros(num_envs, 3, device=device)
         self.rot_error_integral = torch.zeros(num_envs, 3, device=device)
@@ -930,9 +944,13 @@ class MyoHandPourEnv:
         ctrl = wp.to_torch(self.data.ctrl)
         ctrl[:, :] = muscle_activations
 
-        # Real, confirmed structure (2026-09-11): PhysGraph's own
-        # controlFrequencyInv defaults to 1 and is never overridden in
-        mjw.step(self.model, self.data)
+        # Physics substeps at 1/120 (matching Runfa's confirmed ArtiMANO
+        # config: implicitfast integrator, elliptic cone, impratio=10).
+        # Action/qfrc/ctrl set once above, held constant across both
+        # substeps; progress_buf/reward/obs still advance once per outer
+        # call, matching the demo's own 1/60 frame rate.
+        for _ in range(self.physics_substeps):
+            mjw.step(self.model, self.data)
 
         self.progress_buf += 1
         rewards, dones, infos = self._compute_reward()
