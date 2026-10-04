@@ -217,7 +217,7 @@ class MyoHandPourEnv:
 
         self.model = mjw.put_model(self.mj_model)
         self.data = mjw.make_data(
-            self.mj_model, nworld=num_envs, nconmax=max(num_envs * 100, 5000), njmax=max(num_envs * 4, 5000),
+            self.mj_model, nworld=num_envs, nconmax=max(num_envs * 100, 5000), njmax=max(num_envs * 8, 5000),
             # floors added: the *8/*4 multipliers only work at training
             # scale (contacts/constraints share a global pool across
             # many envs, not every env peaks simultaneously) -- at
@@ -227,7 +227,11 @@ class MyoHandPourEnv:
             naccdmax=max(num_envs * 50, 5000), nccdmax=max(num_envs * 50, 5000),
         )  # naccdmax/nccdmax explicit -- real GPU OOM at num_envs=256/1024 from an
         # unbounded default MULTICCD buffer (multiccd_polygon), unrelated to
-        # njmax/nconmax; *4/env is a starting guess, may need tuning
+        # njmax/nconmax. njmax bumped *4->*8/env (2026-10-03): condim=6
+        # roughly doubles constraint rows per contact vs the old condim=3
+        # default (1 normal + condim-1 friction rows each), so the *4
+        # guess from before the condim fix was undersized for the same
+        # reason nconmax needed its 50->100 bump earlier.
 
         self.n_dofs_hand = 23
         self.dof_names = self._dof_names()
