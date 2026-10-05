@@ -1,17 +1,10 @@
-# Adapted from PhysGraph's ResDexHandPPO.yaml. Real dict-based multi-modal
-# observation (proprioception/privileged/target streams, bimanual-SHAPED
-# with an inert LH placeholder -- see envs/mjwarp_myohand_env.py), using
-# lib.nn.features.SimpleFeatureFusion/Identity for feature extraction
-# (real, unmodified PhysGraph utility classes) instead of the full
-# graph-transformer network (network_builder_transformer_bih_graph_
-# improve_correct.py), which is hardcoded to a different embodiment's
-# exact dof/body counts plus real BPS object-shape encoding we don't
-# compute yet -- adopting that network faithfully is a deliberate,
-# separate future milestone. Dropped: the pretrained-checkpoint residual
-# architecture (no base policy to load from, training from scratch).
-# PPO hyperparameters below (gamma, tau, learning_rate, horizon_length,
-# etc.) are carried over directly from PhysGraph's own config where
-# they're genuinely reusable.
+# Adapted from PhysGraph's ResDexHandPPO.yaml. Network is the full graph
+# transformer ported to MyoHand (lib/rl/network_builder_myohand_transformer.py,
+# built on PhysGraph's real network_builder_transformer_bih_graph_improve_correct.py),
+# with right-hand-only observations (inert LH placeholder). Dropped: the
+# pretrained-checkpoint residual architecture (training from scratch).
+# PPO hyperparameters match PhysGraph's DexHandImitatorPPO.yaml (minibatch 1024).
+
 params:
   seed: ${...seed}
   algo:
@@ -26,7 +19,7 @@ params:
   # MyoHand dimensions instead of their hardcoded ArtiMANO ones. See
   # lib/rl/network_builder_myohand_simple.py for the full rationale.
   network:
-    name: myohand_simple_dict_obs_actor_critic
+    name: myohand_transformer_actor_critic
 
   load_checkpoint: False
   load_path:
@@ -63,7 +56,7 @@ params:
     truncate_grads: True
     e_clip: 0.2
     horizon_length: 32
-    minibatch_size: 128
+    minibatch_size: 1024
     mini_epochs: 5
     critic_coef: 4
     clip_value: True
