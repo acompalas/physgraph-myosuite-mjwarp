@@ -771,6 +771,33 @@ class MyoHandPourEnv:
         tip_force_sum = torch.norm(finger_tip_force_masked, dim=-1).sum(-1)
         reward_finger_tip_force = torch.exp(-1 * (1 / (tip_force_sum + 1e-5)))
 
+        # contact history (PhysGraph tips_contact_history, length 3): any contact in the last 3 steps.
+        # Reset to all-True for envs on their first step after reset (progress_buf was just incremented to 1).
+        if not hasattr(self, "tips_contact_history"):
+            self.tips_contact_history = torch.ones(self.num_envs, 3, 5, dtype=torch.bool, device=self.device)
+        self.tips_contact_history[self.progress_buf <= 1] = True
+        self.tips_contact_history = torch.cat(
+            [self.tips_contact_history[:, 1:], (torch.norm(finger_tip_force, dim=-1) > 0)[:, None]], dim=1)
+        # PhysGraph failure term (dexhandmanip_sh.py:1539): demo tip within 5 mm of the object but no contact
+        # in the last 3 steps. MYOHAND_CONTACT_FAIL=0 disables it (for ablation) without code edits.
+        if not hasattr(self, "use_contact_failure"):
+            self.use_contact_failure = os.environ.get("MYOHAND_CONTACT_FAIL", "1") == "1"
+        contact_fail = torch.any((finger_tip_distance < 0.005) & ~(self.tips_contact_history.any(1)), dim=-1)
+        if not self.use_contact_failure:
+            contact_fail = torch.zeros_like(contact_fail)
+
+        # power terms (PhysGraph dexhandmanip_sh.py:809-825). Finger power: |actuator generalized force * dq|
+        # (muscle-driven hand: qfrc_actuator plays the role of Isaac Gym's dof_force). Wrist power: PID force/torque
+        # times the matching root velocity (both in the free joint's own convention: linear world, angular body).
+        qfrc_act = wp.to_torch(self.data.qfrc_actuator)
+        power = torch.abs(qfrc_act[:, self.dof_veladrs] * qvel[:, self.dof_veladrs]).sum(dim=-1)
+        _wf = getattr(self, "_wrist_force", torch.zeros(self.num_envs, 3, device=self.device))
+        _wt = getattr(self, "_wrist_torque", torch.zeros(self.num_envs, 3, device=self.device))
+        wrist_power = (torch.abs((_wf * qvel[:, self.root_dof_adr:self.root_dof_adr + 3]).sum(dim=-1))
+                       + torch.abs((_wt * qvel[:, self.root_dof_adr + 3:self.root_dof_adr + 6]).sum(dim=-1)))
+        reward_power = torch.exp(-10 * power)
+        reward_wrist_power = torch.exp(-2 * wrist_power)
+
         # === target state (current frame, NOT the observation's lookahead) ===
         target_eef_pos = self.demo_opt_wrist_pos[cur_idx]
         target_eef_quat = self.demo_opt_wrist_quat[cur_idx]
@@ -850,6 +877,9 @@ class MyoHandPourEnv:
             "level_1": diff_level_1_pos_dist, "level_2": diff_level_2_pos_dist,
             "obj_rot_deg": diff_obj_rot_angle.abs() / np.pi * 180,
             "tip_force_sum": tip_force_sum,
+            "contact_fail": contact_fail.float(),
+            "power": power,
+            "wrist_power": wrist_power,
         }
         failed_execute = (
             (
@@ -862,6 +892,7 @@ class MyoHandPourEnv:
                 | (diff_level_1_pos_dist > 0.07 / 0.7 * scale_factor)
                 | (diff_level_2_pos_dist > 0.08 / 0.7 * scale_factor)
                 | (diff_obj_rot_angle.abs() / np.pi * 180 > 30 / 0.343 * scale_factor ** 3)
+                | contact_fail
             )
             & (self.progress_buf >= 8)
         ) | error_buf
@@ -876,6 +907,7 @@ class MyoHandPourEnv:
             + 0.05 * reward_eef_ang_vel + 0.1 * reward_joints_vel
             + 0.1 * reward_obj_vel + 0.1 * reward_obj_ang_vel
             + 1.0 * reward_finger_tip_force
+            + 0.5 * reward_power + 0.5 * reward_wrist_power
         )
 
         succeeded = (self.progress_buf + 1 + 3 >= self.max_episode_length) & ~failed_execute
@@ -922,6 +954,8 @@ class MyoHandPourEnv:
                 "reward_obj_vel": reward_obj_vel,
                 "reward_obj_ang_vel": reward_obj_ang_vel,
                 "reward_finger_tip_force": reward_finger_tip_force,
+                "reward_power": reward_power,
+                "reward_wrist_power": reward_wrist_power,
             },
             "time_outs": succeeded,
             "total_rewards": self.total_rewards,
@@ -961,6 +995,9 @@ class MyoHandPourEnv:
         rot_derivative = (rot_error - self.prev_rot_error) / self.dt
         wrist_torque = self.Kp_rot * rot_error + self.Ki_rot * self.rot_error_integral + self.Kd_rot * rot_derivative
         self.prev_rot_error = rot_error
+
+        self._wrist_force = wrist_force
+        self._wrist_torque = wrist_torque
 
         # muscle activations must be in [0,1] (real ctrlrange) -- map from the
         # policy's standard [-1,1] action range
