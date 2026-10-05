@@ -533,6 +533,10 @@ class MyoHandPourEnv:
             self.reset_idx(done_env_ids)
         return self._compute_obs(), done_env_ids
 
+    def _ang_world(self, qpos, qvel, qadr, dadr):
+        """World-frame angular velocity of a free-joint body: R(q) @ w_local."""
+        return quat_rotate_vec(qpos[:, qadr + 3:qadr + 7], qvel[:, dadr + 3:dadr + 6])
+
     def _compute_obs(self):
         """Bimanual-SHAPED observation (per stream: [rh_real, lh_inert]
         concatenated), matching PhysGraph's own convention exactly (its
@@ -564,7 +568,7 @@ class MyoHandPourEnv:
         wrist_pos = qpos[:, self.root_adr:self.root_adr + 3]
         wrist_quat = qpos[:, self.root_adr + 3:self.root_adr + 7]
         wrist_linvel = qvel[:, self.root_dof_adr:self.root_dof_adr + 3]
-        wrist_angvel = qvel[:, self.root_dof_adr + 3:self.root_dof_adr + 6]
+        wrist_angvel = self._ang_world(qpos, qvel, self.root_adr, self.root_dof_adr)
 
         rh_proprio = torch.cat([
             dof_pos, torch.cos(dof_pos), torch.sin(dof_pos),
@@ -583,7 +587,7 @@ class MyoHandPourEnv:
         src_pos = qpos[:, self.src_adr:self.src_adr + 3]
         src_quat = qpos[:, self.src_adr + 3:self.src_adr + 7]
         src_vel = qvel[:, self.src_dof_adr:self.src_dof_adr + 3]
-        src_ang_vel = qvel[:, self.src_dof_adr + 3:self.src_dof_adr + 6]
+        src_ang_vel = self._ang_world(qpos, qvel, self.src_adr, self.src_dof_adr)
         src_com_world = quat_rotate_vec(src_quat, self.src_com[None, :].expand(n, -1)) + src_pos
         src_com_rel = src_com_world - wrist_pos
         src_weight = self.src_weight.expand(n, 1) if self.src_weight.dim() == 0 else self.src_weight[None].expand(n, 1)
@@ -626,7 +630,7 @@ class MyoHandPourEnv:
         target_obj_vel = self.demo_src_obj_vel[idx]
         target_obj_ang_vel = self.demo_src_obj_ang_vel[idx]
         current_obj_vel = qvel[:, self.src_dof_adr:self.src_dof_adr + 3]
-        current_obj_ang_vel = qvel[:, self.src_dof_adr + 3:self.src_dof_adr + 6]
+        current_obj_ang_vel = self._ang_world(qpos, qvel, self.src_adr, self.src_dof_adr)
         delta_obj_pos = target_obj_pos - src_pos
         delta_obj_vel = target_obj_vel - current_obj_vel
         delta_obj_quat = quat_mul(src_quat, quat_conjugate(target_obj_quat))
@@ -652,7 +656,7 @@ class MyoHandPourEnv:
         dst_pos = qpos[:, self.dst_adr:self.dst_adr + 3]
         dst_quat = qpos[:, self.dst_adr + 3:self.dst_adr + 7]
         dst_vel = qvel[:, self.dst_dof_adr:self.dst_dof_adr + 3]
-        dst_ang_vel = qvel[:, self.dst_dof_adr + 3:self.dst_dof_adr + 6]
+        dst_ang_vel = self._ang_world(qpos, qvel, self.dst_adr, self.dst_dof_adr)
         target_dst_pos = self.lh_target_pos
         target_dst_quat = self.lh_target_quat
         delta_dst_pos = target_dst_pos - dst_pos
@@ -728,7 +732,7 @@ class MyoHandPourEnv:
         current_eef_pos = qpos[:, self.root_adr:self.root_adr + 3]
         current_eef_quat = qpos[:, self.root_adr + 3:self.root_adr + 7]
         current_eef_vel = qvel[:, self.root_dof_adr:self.root_dof_adr + 3]
-        current_eef_ang_vel = qvel[:, self.root_dof_adr + 3:self.root_dof_adr + 6]
+        current_eef_ang_vel = self._ang_world(qpos, qvel, self.root_adr, self.root_dof_adr)
 
         # tips are sites (THtip_r etc, confirmed via direct model
         # inspection) -- read from site_xpos for those, xpos for the rest
@@ -749,7 +753,23 @@ class MyoHandPourEnv:
         current_obj_pos = qpos[:, self.src_adr:self.src_adr + 3]
         current_obj_quat = qpos[:, self.src_adr + 3:self.src_adr + 7]
         current_obj_vel = qvel[:, self.src_dof_adr:self.src_dof_adr + 3]
-        current_obj_ang_vel = qvel[:, self.src_dof_adr + 3:self.src_dof_adr + 6]
+        current_obj_ang_vel = self._ang_world(qpos, qvel, self.src_adr, self.src_dof_adr)
+
+        # === fingertip contact-force reward (PhysGraph dexhandmanip_sh.py:1509-1517) ===
+        mjw.rne_postconstraint(self.model, self.data)
+        _cfrc = wp.to_torch(self.data.cfrc_ext)
+        finger_tip_force = _cfrc[:, self.tip_body_ids, 3:6]  # (n, 5, 3), thumb..pinky
+        if not hasattr(self, "_tips_dist_dev"):
+            self._tips_dist_dev = self.rh_demo["tips_distance"].to(self.device)
+        _td_idx = torch.clamp(cur_idx, max=self._tips_dist_dev.shape[0] - 1)
+        finger_tip_distance = self._tips_dist_dev[_td_idx]  # (n, 5) human demo tip-to-mug distance
+        contact_range = [0.02, 0.03]
+        finger_tip_weight = torch.clamp(
+            (contact_range[1] - finger_tip_distance) / (contact_range[1] - contact_range[0]), 0, 1
+        )
+        finger_tip_force_masked = finger_tip_force * finger_tip_weight[:, :, None]
+        tip_force_sum = torch.norm(finger_tip_force_masked, dim=-1).sum(-1)
+        reward_finger_tip_force = torch.exp(-1 * (1 / (tip_force_sum + 1e-5)))
 
         # === target state (current frame, NOT the observation's lookahead) ===
         target_eef_pos = self.demo_opt_wrist_pos[cur_idx]
@@ -760,10 +780,10 @@ class MyoHandPourEnv:
         # velocities: finite-difference of the demo trajectory itself
         next_idx = torch.clamp(cur_idx + 1, max=self.seq_len - 1)
         target_eef_vel = (self.demo_opt_wrist_pos[next_idx] - target_eef_pos) / self.dt
-        target_eef_ang_vel = torch.zeros_like(target_eef_vel)  # angular vel approx omitted for now
+        target_eef_ang_vel = self.demo_wrist_ang_vel[cur_idx]
         target_joints_vel = (self.demo_target_joints_pos[next_idx] - target_joints_pos) / self.dt
         target_obj_vel = (self.demo_src_obj_traj[next_idx, :3, 3] - target_obj_pos) / self.dt
-        target_obj_ang_vel = torch.zeros_like(target_obj_vel)
+        target_obj_ang_vel = self.demo_src_obj_ang_vel[cur_idx]
 
         # === diffs ===
         diff_eef_pos_dist = torch.norm(target_eef_pos - current_eef_pos, dim=-1)
@@ -829,6 +849,7 @@ class MyoHandPourEnv:
             "pinky": diff_pinky_tip_pos_dist, "ring": diff_ring_tip_pos_dist,
             "level_1": diff_level_1_pos_dist, "level_2": diff_level_2_pos_dist,
             "obj_rot_deg": diff_obj_rot_angle.abs() / np.pi * 180,
+            "tip_force_sum": tip_force_sum,
         }
         failed_execute = (
             (
@@ -854,6 +875,7 @@ class MyoHandPourEnv:
             + 1.0 * reward_obj_rot + 0.1 * reward_eef_vel
             + 0.05 * reward_eef_ang_vel + 0.1 * reward_joints_vel
             + 0.1 * reward_obj_vel + 0.1 * reward_obj_ang_vel
+            + 1.0 * reward_finger_tip_force
         )
 
         succeeded = (self.progress_buf + 1 + 3 >= self.max_episode_length) & ~failed_execute
@@ -899,6 +921,7 @@ class MyoHandPourEnv:
                 "reward_joints_vel": reward_joints_vel,
                 "reward_obj_vel": reward_obj_vel,
                 "reward_obj_ang_vel": reward_obj_ang_vel,
+                "reward_finger_tip_force": reward_finger_tip_force,
             },
             "time_outs": succeeded,
             "total_rewards": self.total_rewards,
