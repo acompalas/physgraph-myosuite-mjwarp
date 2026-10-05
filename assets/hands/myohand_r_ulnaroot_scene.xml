@@ -129,14 +129,16 @@
     <camera name="front_view" pos="0 -3 2.25" quat="0.850651 0.525731 0 0" mode="trackcom" />
     <camera name="side_view" pos="-3 0 2.25" quat="0.601501 0.371748 -0.371748 -0.601501" mode="trackcom" />
     <geom pos="0 6.95 2.1" quat="0.707388 0.706825 0 0" type="mesh" contype="0" conaffinity="0" group="1" material="matlogo" mesh="logo" />
-    <geom size="1.05 0.205" pos="0 0 -0.19" type="cylinder" group="4" contype="1" conaffinity="1" friction="0.1 0.02 0.01" />
+    <!-- Pedestal top lowered from z=0.015 to z=-0.0013 (center -0.2063): measured kinematically, both demo mugs rest at
+         z of about -0.001 (the demo table is at z of about 0), so the original surface left them 16 mm inside it. -->
+    <geom size="1.05 0.205" pos="0 0 -0.2063" type="cylinder" group="4" contype="1" conaffinity="1" friction="0.1 0.02 0.01" />
     <geom pos="0 0 -0.41326" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" material="matscene" mesh="meshscene" />
     <geom name="floor" size="7 7 0.1" pos="0 0 -0.4" type="plane" group="1" material="matfloor" contype="1" conaffinity="1" friction="0.1 0.02 0.01" />
     <body name="ulna_r" childclass="myoarm_elbow" pos="0.266323 -0.007384 0.128377" quat="0.707388 0.040962 -0.030113 0.704994">
                       <inertial pos="0.00971783 -0.0959509 0.024286" quat="0.792048 0.609078 0.0156735 0.0379256" mass="1.1053" diaginertia="0.00543663 0.00523521 0.001" />
                       <geom name="ulna_r" type="mesh" mesh="ulna_r" />
                       <geom name="PQ2_wrap" class="myoarm_wrap" size="0.007 0.005" pos="-0.0012 -0.2092 0.0428" quat="0.540178 0.481989 -0.422693 0.545183" type="cylinder" />
-                      <geom name="ulna_coll_r" class="myoarm_coll" size="0.015 0.102286" pos="-0.0075 -0.1 0.0225" quat="0.643782 -0.7593 -0.0949124 0" />
+                      <geom name="ulna_coll_r" contype="0" class="myoarm_coll" size="0.015 0.102286" pos="-0.0075 -0.1 0.0225" quat="0.643782 -0.7593 -0.0949124 0" />
                       <site name="ECU-P2_r" pos="-0.0139 -0.032 0.0295" />
                       <site name="ECU-P3_r" pos="-0.017 -0.0543 0.0287" />
                       <site name="ECU-P4_r" pos="-0.0179 -0.0957 0.0328" />
@@ -165,9 +167,11 @@
                       <body name="radius_r" pos="0.0004 -0.0115 0.02">
                         <inertial pos="0.0336341 -0.181559 0.0156" quat="0.770264 0.63559 0.0119833 0.0507376" mass="0.23359" diaginertia="0.001 0.001 0.001" />
                         <joint name="pro_sup_r" pos="0 0 0" axis="-0.017161 0.992666 -0.119668" range="-1.5708 1.5708" damping="0.5" />
-                        <geom name="radius_coll_r" class="myoarm_coll" size="0.03 0.118985" pos="0.0075 -0.11792 0.014" quat="0.664206 -0.746042 -0.0474499 0" />
-                        <geom name="radius_coll_2_r" class="myohand_coll" size="0.02 0.121037" pos="0.02 -0.12 0.01" quat="0.661843 -0.748993 -0.031208 0" />
-                        <geom name="radius_coll_3_r" class="myohand_coll" size="0.02 0.121912" pos="0.0025 -0.12 0.0075" quat="0.65439 -0.752088 -0.0783424 0" />
+                        <!-- forearm bones (radius_coll_*, ulna_coll_r): collision disabled. The retargeted wrist sits at or below table height,
+         so these thick capsules were 14-21 mm inside the pedestal during the demo; ArtiMANO has no forearm geometry. -->
+        <geom name="radius_coll_r" contype="0" class="myoarm_coll" size="0.03 0.118985" pos="0.0075 -0.11792 0.014" quat="0.664206 -0.746042 -0.0474499 0" />
+                        <geom name="radius_coll_2_r" contype="0" class="myohand_coll" size="0.02 0.121037" pos="0.02 -0.12 0.01" quat="0.661843 -0.748993 -0.031208 0" />
+                        <geom name="radius_coll_3_r" contype="0" class="myohand_coll" size="0.02 0.121912" pos="0.0025 -0.12 0.0075" quat="0.65439 -0.752088 -0.0783424 0" />
                         <geom name="radius_r" type="mesh" mesh="radius_r" />
                         <geom name="ECU_torus_wrap" class="myoarm_wrap" size="0.003" pos="-0.0163 -0.2417 0.0349" quat="0.868975 -0.476593 -0.0126204 0.132601" />
                         <site name="ECRL-P2_r" pos="0.032 -0.1346 0.0278" />
