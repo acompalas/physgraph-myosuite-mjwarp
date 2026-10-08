@@ -208,6 +208,16 @@ class MyoHandPourEnv:
         base = mujoco.MjSpec.from_file(hand_xml)
         mug_src = mujoco.MjSpec.from_file(mug_src_xml)
         mug_dst = mujoco.MjSpec.from_file(mug_dst_xml)
+        # PhysGraph object mass rule (dexhandmanip_bih.py:753 density 200, :501 mass cap 0.5 kg).
+        # mass = 200 * summed collision-piece volume (src 3.395e-4 m^3 -> 0.068 kg, dst 2.338e-4 m^3 -> 0.047 kg).
+        # The XML masses (1.076 / 0.719 kg) are ~16x too heavy; ratios below map them to those targets.
+        _mass_scale = float(os.environ.get("MYOHAND_MUG_MASS_SCALE", "1.0"))
+        for spec, _ratio in ((mug_src, 0.0631), (mug_dst, 0.0651)):
+            for _b in spec.bodies:
+                if _b.mass > 0:
+                    _m1 = min(0.5, _b.mass * _ratio * _mass_scale)
+                    _b.inertia = _b.inertia * (_m1 / _b.mass)
+                    _b.mass = _m1
         for spec, prefix in [(mug_src, "src_"), (mug_dst, "dst_")]:
             site = base.worldbody.add_site(name=f"attach_{prefix}", pos=[0, 0, 0])
             base.attach(spec, prefix=prefix, site=site)
@@ -779,9 +789,9 @@ class MyoHandPourEnv:
         self.tips_contact_history = torch.cat(
             [self.tips_contact_history[:, 1:], (torch.norm(finger_tip_force, dim=-1) > 0)[:, None]], dim=1)
         # PhysGraph failure term (dexhandmanip_sh.py:1539): demo tip within 5 mm of the object but no contact
-        # in the last 3 steps. MYOHAND_CONTACT_FAIL=0 disables it (for ablation) without code edits.
+        # in the last 3 steps. Single-hand file only: PhysGraph's bih (bimanual) has no such term, so it is OFF by default (MYOHAND_CONTACT_FAIL=1 enables).
         if not hasattr(self, "use_contact_failure"):
-            self.use_contact_failure = os.environ.get("MYOHAND_CONTACT_FAIL", "1") == "1"
+            self.use_contact_failure = os.environ.get("MYOHAND_CONTACT_FAIL", "0") == "1"
         contact_fail = torch.any((finger_tip_distance < 0.005) & ~(self.tips_contact_history.any(1)), dim=-1)
         if not self.use_contact_failure:
             contact_fail = torch.zeros_like(contact_fail)
@@ -906,7 +916,7 @@ class MyoHandPourEnv:
             + 1.0 * reward_obj_rot + 0.1 * reward_eef_vel
             + 0.05 * reward_eef_ang_vel + 0.1 * reward_joints_vel
             + 0.1 * reward_obj_vel + 0.1 * reward_obj_ang_vel
-            + 1.0 * reward_finger_tip_force
+            + float(os.environ.get("MYOHAND_FORCE_REWARD_W", "0.0")) * reward_finger_tip_force
             + 0.5 * reward_power + 0.5 * reward_wrist_power
         )
 
