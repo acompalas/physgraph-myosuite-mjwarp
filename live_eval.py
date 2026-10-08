@@ -9,6 +9,7 @@ std) -- the network was trained on normalized inputs, skipping this
 would produce meaningless actions.
 """
 import sys
+import numpy as np
 import torch
 import mujoco
 import mujoco.viewer
@@ -17,7 +18,7 @@ sys.path.insert(0, ".")
 from envs.mjwarp_myohand_env import MyoHandPourEnv
 from lib.rl.network_builder_myohand_transformer import MyoHandTransformerNetwork
 
-CHECKPOINT_PATH = "eval_checkpoints/ep507.pth"
+CHECKPOINT_PATH = "eval_checkpoints/last_MyoHandPour_ep_9000_rew_711.0098_sr_0.0_fr_1.0.pth"
 DEVICE = "cuda:0"
 
 
@@ -100,6 +101,25 @@ def main():
             mj_data.qpos[:] = qpos
             mujoco.mj_forward(env.mj_model, mj_data)
             viewer.sync()
+
+            if step_count % 10 == 0:
+                ids = env.tip_body_ids
+                tips = set(int(i) for i in (ids.tolist() if hasattr(ids, "tolist") else list(ids)))
+                m = env.mj_model
+                f6 = np.zeros(6)
+                rows = []
+                for ci in range(mj_data.ncon):
+                    c = mj_data.contact[ci]
+                    b1, b2 = int(m.geom_bodyid[c.geom1]), int(m.geom_bodyid[c.geom2])
+                    if b1 in tips or b2 in tips:
+                        mujoco.mj_contactForce(m, mj_data, ci, f6)
+                        n1 = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, b1)
+                        n2 = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, b2)
+                        rows.append((c.dist * 1000, f6[0], n1, n2))
+                rows.sort()
+                print(f"  [tip contacts, step {step_count}] n={len(rows)} (dist mm, normal N, bodies)")
+                for r in rows[:8]:
+                    print(f"    {r[0]:+.2f} mm  {r[1]:6.1f} N  {r[2]} <-> {r[3]}")
 
             step_count += 1
             if step_count % 50 == 0:
