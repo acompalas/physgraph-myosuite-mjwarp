@@ -224,10 +224,10 @@ class MyoHandPourEnv:
             base.delete(site)
 
         self.mj_model = base.compile()
-        _ts = float(os.environ.get("MYOHAND_TIMESTEP", "0"))
+        _ts = float(os.environ.get("MYOHAND_TIMESTEP", "0.004166667"))
         if _ts > 0:
             self.mj_model.opt.timestep = _ts
-        _tc = float(os.environ.get("MYOHAND_CONTACT_TC", "0"))
+        _tc = float(os.environ.get("MYOHAND_CONTACT_TC", "0.008333"))
         if _tc > 0:
             self.mj_model.geom_solref[:, 0] = _tc
 
@@ -415,6 +415,7 @@ class MyoHandPourEnv:
         self.Kp_pos, self.Ki_pos, self.Kd_pos = 10.0, 0.003, 0.5
         self.Kp_rot, self.Ki_rot, self.Kd_rot = 0.3, 0.01, 0.005
         self.physics_substeps = int(round((1.0 / 60.0) / self.mj_model.opt.timestep))
+        print(f"[physics] dt=1/{1.0 / self.mj_model.opt.timestep:.0f} substeps={self.physics_substeps} solref0_min={float(self.mj_model.geom_solref[:, 0].min()):.5f}", flush=True)
         self.sim_dt = self.mj_model.opt.timestep      # raw physics integration step (1/120)
         self.dt = self.sim_dt * self.physics_substeps  # control/demo cadence (1/60)
         self.pos_error_integral = torch.zeros(num_envs, 3, device=device)
