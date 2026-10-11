@@ -231,6 +231,34 @@ class MyoHandPourEnv:
         if _tc > 0:
             self.mj_model.geom_solref[:, 0] = _tc
 
+        # wrist actuator fidelity: PhysGraph's hand asset has disable_gravity=True and
+        # linear/angular damping 20 (dexhandmanip_bih.py lines ~280-290)
+        _rj = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "root_r")
+        _rb = int(self.mj_model.jnt_bodyid[_rj])
+        _hand_gravity = os.environ.get("MYOHAND_HAND_GRAVITY", "0")
+        if _hand_gravity == "0":
+            for _b in range(self.mj_model.nbody):
+                if self.mj_model.body_rootid[_b] == _rb:
+                    self.mj_model.body_gravcomp[_b] = 1.0
+        _damp = float(os.environ.get("MYOHAND_ROOT_DAMPING", "20.0"))
+        self._root_damp_np = None
+        if _damp > 0:
+            _da = int(self.mj_model.jnt_dofadr[_rj])
+            _d0 = mujoco.MjData(self.mj_model)
+            mujoco.mj_forward(self.mj_model, _d0)
+            _tm = float(self.mj_model.body_subtreemass[_rb])
+            _I = np.zeros((3, 3))
+            for _b in range(self.mj_model.nbody):
+                if self.mj_model.body_rootid[_b] != _rb:
+                    continue
+                _R = _d0.ximat[_b].reshape(3, 3)
+                _Ib = _R @ np.diag(self.mj_model.body_inertia[_b]) @ _R.T
+                _r = _d0.xipos[_b] - _d0.xpos[_rb]
+                _I += _Ib + self.mj_model.body_mass[_b] * (np.dot(_r, _r) * np.eye(3) - np.outer(_r, _r))
+            _R0 = _d0.xmat[_rb].reshape(3, 3)
+            _Iloc = _R0.T @ _I @ _R0   # inertia about root origin in the BODY frame (free-joint angular dofs are body-frame)
+            self._root_damp_np = (_damp * _tm, (_damp * _Iloc).astype(np.float32))
+        print(f"[wrist] hand_gravity={_hand_gravity} (0=compensated) root_damping={_damp} coeffs={None if self._root_damp_np is None else (round(float(self._root_damp_np[0]), 2), np.round(np.diag(self._root_damp_np[1]), 3).tolist())}", flush=True)
         self.model = mjw.put_model(self.mj_model)
         self.data = mjw.make_data(
             self.mj_model, nworld=num_envs, nconmax=max(num_envs * 100, 5000), njmax=max(num_envs * 4, 5000),
@@ -422,6 +450,15 @@ class MyoHandPourEnv:
         self.prev_pos_error = torch.zeros(num_envs, 3, device=device)
         self.rot_error_integral = torch.zeros(num_envs, 3, device=device)
         self.prev_rot_error = torch.zeros(num_envs, 3, device=device)
+        self.wrist_ema = float(os.environ.get("MYOHAND_FORCE_EMA", "0.4"))
+        self._applied_force = torch.zeros(num_envs, 3, device=device)
+        self._applied_torque = torch.zeros(num_envs, 3, device=device)
+        self._root_damp = None
+        if self._root_damp_np is not None:
+            self._root_damp_lin = float(self._root_damp_np[0])
+            self._root_damp_ang = torch.tensor(self._root_damp_np[1], device=device)
+            self._root_damp = True
+        print(f"[wrist] force_ema={self.wrist_ema}", flush=True)
 
         self.n_muscles = self.mj_model.nu  # 39, real muscle-tendon actuators
         # (ctrlrange 0-1, dyntype/gaintype/biastype=muscle -- confirmed
@@ -525,6 +562,8 @@ class MyoHandPourEnv:
         self.prev_pos_error[env_ids] = 0.0
         self.rot_error_integral[env_ids] = 0.0
         self.prev_rot_error[env_ids] = 0.0
+        self._applied_force[env_ids] = 0.0
+        self._applied_torque[env_ids] = 0.0
 
         mjw.forward(self.model, self.data)
 
@@ -1013,6 +1052,11 @@ class MyoHandPourEnv:
         wrist_torque = self.Kp_rot * rot_error + self.Ki_rot * self.rot_error_integral + self.Kd_rot * rot_derivative
         self.prev_rot_error = rot_error
 
+        _a = self.wrist_ema
+        wrist_force = _a * wrist_force + (1.0 - _a) * self._applied_force
+        wrist_torque = _a * wrist_torque + (1.0 - _a) * self._applied_torque
+        self._applied_force = wrist_force
+        self._applied_torque = wrist_torque
         self._wrist_force = wrist_force
         self._wrist_torque = wrist_torque
 
@@ -1033,7 +1077,13 @@ class MyoHandPourEnv:
         # Action/qfrc/ctrl set once above, held constant across both
         # substeps; progress_buf/reward/obs still advance once per outer
         # call, matching the demo's own 1/60 frame rate.
+        _qv = wp.to_torch(self.data.qvel)
+        _ra, _rd = self.root_dof_adr, self.root_dof_adr
+        _qf_base = qfrc[:, _rd:_rd + 6].clone()
         for _ in range(self.physics_substeps):
+            if self._root_damp is not None:
+                qfrc[:, _rd:_rd + 3] = _qf_base[:, 0:3] - self._root_damp_lin * _qv[:, _rd:_rd + 3]
+                qfrc[:, _rd + 3:_rd + 6] = _qf_base[:, 3:6] - _qv[:, _rd + 3:_rd + 6] @ self._root_damp_ang
             mjw.step(self.model, self.data)
 
         self.progress_buf += 1
