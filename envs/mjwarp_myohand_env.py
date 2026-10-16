@@ -259,6 +259,22 @@ class MyoHandPourEnv:
             _Iloc = _R0.T @ _I @ _R0   # inertia about root origin in the BODY frame (free-joint angular dofs are body-frame)
             self._root_damp_np = (_damp * _tm, (_damp * _Iloc).astype(np.float32))
         print(f"[wrist] hand_gravity={_hand_gravity} (0=compensated) root_damping={_damp} coeffs={None if self._root_damp_np is None else (round(float(self._root_damp_np[0]), 2), np.round(np.diag(self._root_damp_np[1]), 3).tolist())}", flush=True)
+        _lim_tc = float(os.environ.get("MYOHAND_LIMIT_TC", "0.00833"))
+        if _lim_tc > 0:
+            for _j in range(self.mj_model.njnt):
+                if self.mj_model.jnt_limited[_j] and self.mj_model.jnt_type[_j] in (2, 3):
+                    self.mj_model.jnt_solref[_j] = [_lim_tc, 1.0]
+        print(f"[limits] joint limit solref timeconst={'default (0.02)' if _lim_tc <= 0 else _lim_tc}")
+        if os.environ.get("MYOHAND_THUMB_LIMITS", "0") == "1":
+            for _n, (_lo, _hi) in {"cmc_flexion_r": (2, 36), "cmc_abduction_r": (-7, 33), "mp_flexion_r": (-1, 32), "ip_flexion_r": (-28, 14)}.items():
+                _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, _n)
+                self.mj_model.jnt_range[_j] = np.radians([_lo, _hi])
+            print("[limits] thumb ranges tightened to demo range +-10 deg")
+        if os.environ.get("MYOHAND_THUMB_LIMITS", "0") == "1":
+            for _n, (_lo, _hi) in {"cmc_flexion_r": (2, 36), "cmc_abduction_r": (-7, 33), "mp_flexion_r": (-1, 32), "ip_flexion_r": (-28, 14)}.items():
+                _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, _n)
+                self.mj_model.jnt_range[_j] = np.radians([_lo, _hi])
+            print("[limits] thumb ranges tightened to demo range +-10 deg")
         self.model = mjw.put_model(self.mj_model)
         self.data = mjw.make_data(
             self.mj_model, nworld=num_envs, nconmax=max(num_envs * 100, 5000), njmax=max(num_envs * 4, 5000),
