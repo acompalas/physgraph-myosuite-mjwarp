@@ -265,11 +265,16 @@ class MyoHandPourEnv:
                 if self.mj_model.jnt_limited[_j] and self.mj_model.jnt_type[_j] in (2, 3):
                     self.mj_model.jnt_solref[_j] = [_lim_tc, 1.0]
         print(f"[limits] joint limit solref timeconst={'default (0.02)' if _lim_tc <= 0 else _lim_tc}")
-        if os.environ.get("MYOHAND_THUMB_LIMITS", "0") == "1":
-            for _n, (_lo, _hi) in {"cmc_flexion_r": (2, 36), "cmc_abduction_r": (-7, 33), "mp_flexion_r": (-1, 32), "ip_flexion_r": (-28, 14)}.items():
-                _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, _n)
-                self.mj_model.jnt_range[_j] = np.radians([_lo, _hi])
-            print("[limits] thumb ranges tightened to demo range +-10 deg")
+        _ip_flex = float(os.environ.get("MYOHAND_IP_MAX_FLEX_DEG", "35"))
+        if _ip_flex > 0:
+            _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "ip_flexion_r")
+            self.mj_model.jnt_range[_j, 0] = -np.radians(_ip_flex)
+            print(f"[limits] ip_flexion_r max flexion set to {_ip_flex} deg")
+        _mp_max = float(os.environ.get("MYOHAND_MP_MAX_DEG", "22"))
+        if _mp_max > 0:
+            _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "mp_flexion_r")
+            self.mj_model.jnt_range[_j, 1] = np.radians(_mp_max)
+            print(f"[limits] mp_flexion_r upper limit set to {_mp_max} deg")
         if os.environ.get("MYOHAND_THUMB_LIMITS", "0") == "1":
             for _n, (_lo, _hi) in {"cmc_flexion_r": (2, 36), "cmc_abduction_r": (-7, 33), "mp_flexion_r": (-1, 32), "ip_flexion_r": (-28, 14)}.items():
                 _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, _n)
