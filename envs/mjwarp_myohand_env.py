@@ -469,6 +469,7 @@ class MyoHandPourEnv:
         self.dst_weight = torch.tensor(self.mj_model.body_mass[dst_body_id] * _gravity_z, device=self.device, dtype=torch.float32)
 
         self.progress_buf = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self.running_progress_buf = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.success_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
         self.failure_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
         self.error_buf_ = torch.zeros(num_envs, dtype=torch.bool, device=device)
@@ -571,25 +572,31 @@ class MyoHandPourEnv:
         qpos = wp.to_torch(self.data.qpos)
         qvel = wp.to_torch(self.data.qvel)
 
-        opt_wrist_pos0 = self.demo_opt_wrist_pos[0]
-        opt_wrist_quat0 = self.demo_opt_wrist_quat[0]
-        opt_dof_pos0 = self.demo_opt_dof_pos[0]
-        src_pose0 = self.demo_src_obj_traj[0]
+        n_reset = len(env_ids)
+        if os.environ.get("MYOHAND_RANDOM_START", "0") == "1":
+            # PhysGraph randomStateInit: uniform random start frame of the same demo
+            seq_idx = torch.floor(self.seq_len * 0.98 * torch.rand(n_reset, device=self.device)).long()
+        else:
+            seq_idx = torch.zeros(n_reset, dtype=torch.long, device=self.device)
+        src_pose = self.demo_src_obj_traj[seq_idx]
         dst_pose0 = self.demo_dst_obj_traj0
 
-        qpos[env_ids, self.root_adr:self.root_adr + 3] = opt_wrist_pos0
-        qpos[env_ids, self.root_adr + 3:self.root_adr + 7] = opt_wrist_quat0
-        qpos[env_ids[:, None], self.dof_adrs] = opt_dof_pos0
+        qpos[env_ids, self.root_adr:self.root_adr + 3] = self.demo_opt_wrist_pos[seq_idx]
+        qpos[env_ids, self.root_adr + 3:self.root_adr + 7] = self.demo_opt_wrist_quat[seq_idx]
+        qpos[env_ids[:, None], self.dof_adrs] = self.demo_opt_dof_pos[seq_idx]
 
-        qpos[env_ids, self.src_adr:self.src_adr + 3] = src_pose0[:3, 3]
-        qpos[env_ids, self.src_adr + 3:self.src_adr + 7] = rotmat_to_quat(src_pose0[:3, :3][None])[0]
+        qpos[env_ids, self.src_adr:self.src_adr + 3] = src_pose[:, :3, 3]
+        qpos[env_ids, self.src_adr + 3:self.src_adr + 7] = rotmat_to_quat(src_pose[:, :3, :3])
 
         qpos[env_ids, self.dst_adr:self.dst_adr + 3] = dst_pose0[:3, 3]
         qpos[env_ids, self.dst_adr + 3:self.dst_adr + 7] = rotmat_to_quat(dst_pose0[:3, :3][None])[0]
 
         qvel[env_ids] = 0.0
+        if os.environ.get('MYOHAND_RANDOM_START', '0') == '1' and getattr(self.model, 'na', 0) > 0:
+            wp.to_torch(self.data.act)[env_ids] = 0.0
 
-        self.progress_buf[env_ids] = 0
+        self.progress_buf[env_ids] = seq_idx
+        self.running_progress_buf[env_ids] = 0
         self.success_buf_[env_ids] = False
         self.failure_buf_[env_ids] = False
         self.error_buf_[env_ids] = False
@@ -616,12 +623,6 @@ class MyoHandPourEnv:
         reset_buf = self.success_buf_ | self.failure_buf_
         done_env_ids = reset_buf.nonzero(as_tuple=False).flatten()
         if len(done_env_ids) > 0:
-            # TEMP DEBUG: what progress_buf value are envs actually
-            # resetting at during real training (vs our standalone test)?
-            progresses = self.progress_buf[done_env_ids]
-            print(f"[RESET DEBUG] resetting {len(done_env_ids)} envs, "
-                  f"progress values: {progresses.tolist()[:10]}"
-                  f"{'...' if len(progresses) > 10 else ''}")
             self.reset_idx(done_env_ids)
         return self._compute_obs(), done_env_ids
 
@@ -807,9 +808,9 @@ class MyoHandPourEnv:
         - joints_vel APPROXIMATED via finite-difference of body xpos
           across steps, not MuJoCo's real cvel (6D com-based convention,
           not yet verified for mujoco_warp).
-        - scale_factor fixed at 1.0 (no tightening curriculum yet -- see
-          project notes: this is deferred, not a phase-separated
-          curriculum PhysGraph itself doesn't have either).
+        - scale_factor follows PhysGraph's termination tightening schedule
+          (MYOHAND_TIGHTEN_METHOD/FACTOR/STEPS, default exp_decay 0.7 / 3200),
+          counted in env.step calls. Set METHOD=None for eval.
         """
         mjw.forward(self.model, self.data)  # ensure xpos/xquat are fresh
 
@@ -881,7 +882,7 @@ class MyoHandPourEnv:
         # Reset to all-True for envs on their first step after reset (progress_buf was just incremented to 1).
         if not hasattr(self, "tips_contact_history"):
             self.tips_contact_history = torch.ones(self.num_envs, 3, 5, dtype=torch.bool, device=self.device)
-        self.tips_contact_history[self.progress_buf <= 1] = True
+        self.tips_contact_history[self.running_progress_buf <= 1] = True
         self.tips_contact_history = torch.cat(
             [self.tips_contact_history[:, 1:], (torch.norm(finger_tip_force, dim=-1) > 0)[:, None]], dim=1)
         # PhysGraph failure term (dexhandmanip_sh.py:1539): demo tip within 5 mm of the object but no contact
@@ -1093,7 +1094,7 @@ class MyoHandPourEnv:
                 | (diff_obj_rot_angle.abs() / np.pi * 180 > 30 / 0.343 * scale_factor ** 3)
                 | contact_fail
             )
-            & (self.progress_buf >= 8)
+            & (self.running_progress_buf >= 8)
         ) | error_buf
 
         reward = (
@@ -1164,7 +1165,7 @@ class MyoHandPourEnv:
             },
             "time_outs": succeeded,
             "total_rewards": self.total_rewards,
-            "total_steps": self.progress_buf,
+            "total_steps": self.running_progress_buf,
             # POLARITY FIX (2026-09-08): rl_games' own torch_ext.normalization_
             # with_masks / get_mean_var_with_masks expects masks=1 to mean
             # "valid, include this sample" (values*masks summed, divided by
@@ -1236,6 +1237,7 @@ class MyoHandPourEnv:
             mjw.step(self.model, self.data)
 
         self.progress_buf += 1
+        self.running_progress_buf += 1
         rewards, dones, infos = self._compute_reward()
         obs = self._compute_obs()
         return obs, rewards, dones, infos
