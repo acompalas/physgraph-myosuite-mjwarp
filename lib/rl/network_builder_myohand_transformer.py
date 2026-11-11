@@ -23,6 +23,7 @@ called) -- not reproduced here.
 """
 import torch
 import torch.nn as nn
+import os
 import torch.nn.functional as F
 
 from lib.rl.network_builder_transformer_bih_graph_improve_correct import (
@@ -56,7 +57,8 @@ class MyoHandLatentEncoder(nn.Module):
         self.action_dim = action_dim
 
         # tokenizers -- real MLP_new, our own verified input dims
-        self.rh_tokenizer = MLP_new(141)
+        self._na = 39 if os.environ.get("MYOHAND_OBS_ACT", "0") == "1" else 0  # muscle activations -> RH token
+        self.rh_tokenizer = MLP_new(141 + self._na)
         self.lh_tokenizer = MLP_new(141)
         self.tool_tokenizer = MLP_new(129)
         self.obj_tokenizer = MLP_new(129)
@@ -125,7 +127,7 @@ class MyoHandLatentEncoder(nn.Module):
         # own real convention: one concatenated tensor per modality,
         # covering both hands, sliced internally here) ===
         r_prop = obs["proprioception"][:, :82]
-        l_prop = obs["proprioception"][:, 82:]
+        l_prop = obs["proprioception"][:, 82:164]
         r_priv = obs["privileged"][:, :60]
         l_priv = obs["privileged"][:, 60:]
         r_curr = obs["target"][:, None, :380]
@@ -145,6 +147,8 @@ class MyoHandLatentEncoder(nn.Module):
 
         rh_obs = torch.cat([r_q, r_cosq, r_sinq, r_base, r_dq, r_opos, r_oquat, r_ovel, r_oangvel, r_ocom, r_tipforce], dim=-1)
         lh_obs = torch.cat([l_q, l_cosq, l_sinq, l_base, l_dq, l_opos, l_oquat, l_ovel, l_oangvel, l_ocom, l_tipforce], dim=-1)
+        if self._na:
+            rh_obs = torch.cat([rh_obs, obs["proprioception"][:, 164:164 + self._na]], dim=-1)
 
         tool_obs = torch.cat([r_oweight, r_curr[:, 0, 252:]], dim=-1)   # obj_weight + src BPS
         obj_obs = torch.cat([l_oweight, l_curr[:, 0, 252:]], dim=-1)    # obj_weight + dst BPS
