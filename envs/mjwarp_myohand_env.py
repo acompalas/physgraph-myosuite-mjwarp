@@ -280,6 +280,18 @@ class MyoHandPourEnv:
                 if self.mj_model.jnt_limited[_j] and self.mj_model.jnt_type[_j] in (2, 3):
                     self.mj_model.jnt_solref[_j] = [_lim_tc, 1.0]
         print(f"[limits] joint limit solref timeconst={'default (0.02)' if _lim_tc <= 0 else _lim_tc}")
+        _ring_mcp = float(os.environ.get("MYOHAND_RING_MCP_MAX_DEG", "0"))
+        if _ring_mcp > 0:
+            _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "mcp4_flexion_r")
+            self.mj_model.jnt_range[_j, 1] = np.radians(_ring_mcp)
+            print(f"[limits] mcp4_flexion_r upper limit set to {_ring_mcp} deg")
+        _jmax = os.environ.get("MYOHAND_JOINT_MAX_DEG", "")
+        for _item in [x for x in _jmax.split(",") if x.strip()]:
+            _n, _v = _item.split(":")
+            _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, _n.strip())
+            assert _j >= 0, _n
+            self.mj_model.jnt_range[_j, 1] = np.radians(float(_v))
+            print(f"[limits] {_n.strip()} upper limit set to {float(_v)} deg")
         _ip_flex = float(os.environ.get("MYOHAND_IP_MAX_FLEX_DEG", "0"))
         if _ip_flex > 0:
             _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "ip_flexion_r")
@@ -290,8 +302,11 @@ class MyoHandPourEnv:
             _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "mp_flexion_r")
             self.mj_model.jnt_range[_j, 1] = np.radians(_mp_max)
             print(f"[limits] mp_flexion_r upper limit set to {_mp_max} deg")
-        if os.environ.get("MYOHAND_THUMB_LIMITS", "0") == "1":
-            for _n, (_lo, _hi) in {"cmc_flexion_r": (2, 36), "cmc_abduction_r": (-7, 33), "mp_flexion_r": (-1, 32), "ip_flexion_r": (-28, 14)}.items():
+        _tl = os.environ.get("MYOHAND_THUMB_LIMITS", "0")
+        if _tl in ("1", "2"):
+            _tl_v1 = {"cmc_flexion_r": (2, 36), "cmc_abduction_r": (-7, 33), "mp_flexion_r": (-1, 32), "ip_flexion_r": (-28, 14)}
+            _tl_v2 = {"cmc_flexion_r": (-12, 35), "cmc_abduction_r": (13, 44), "mp_flexion_r": (-9, 30), "ip_flexion_r": (-51, 14)}
+            for _n, (_lo, _hi) in (_tl_v2 if _tl == "2" else _tl_v1).items():
                 _j = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, _n)
                 self.mj_model.jnt_range[_j] = np.radians([_lo, _hi])
             print("[limits] thumb ranges tightened to demo range +-10 deg")
@@ -478,7 +493,9 @@ class MyoHandPourEnv:
         # PID gains, ArtiMANO reference values (physgraph_envs/lib/envs/
         # dexhands/artimano_real.py) -- NOT yet tuned for MyoHand
         self.Kp_pos, self.Ki_pos, self.Kd_pos = 10.0, 0.003, 0.5
-        self.Kp_rot, self.Ki_rot, self.Kd_rot = 0.3, 0.01, 0.005
+        _rgs = float(os.environ.get("MYOHAND_ROT_GAIN_SCALE", "1.0"))
+        self.Kp_rot, self.Ki_rot, self.Kd_rot = 0.3 * _rgs, 0.01 * _rgs, 0.005 * _rgs
+        print(f"[wrist] rot_gain_scale={_rgs} Kp_rot={self.Kp_rot}", flush=True)
         self.physics_substeps = int(round((1.0 / 60.0) / self.mj_model.opt.timestep))
         print(f"[physics] dt=1/{1.0 / self.mj_model.opt.timestep:.0f} substeps={self.physics_substeps} solref0_min={float(self.mj_model.geom_solref[:, 0].min()):.5f}", flush=True)
         self.sim_dt = self.mj_model.opt.timestep      # raw physics integration step (1/120)
