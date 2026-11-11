@@ -493,9 +493,13 @@ class MyoHandPourEnv:
         # PID gains, ArtiMANO reference values (physgraph_envs/lib/envs/
         # dexhands/artimano_real.py) -- NOT yet tuned for MyoHand
         self.Kp_pos, self.Ki_pos, self.Kd_pos = 10.0, 0.003, 0.5
-        _rgs = float(os.environ.get("MYOHAND_ROT_GAIN_SCALE", "1.0"))
-        self.Kp_rot, self.Ki_rot, self.Kd_rot = 0.3 * _rgs, 0.01 * _rgs, 0.005 * _rgs
-        print(f"[wrist] rot_gain_scale={_rgs} Kp_rot={self.Kp_rot}", flush=True)
+        _rgs = [float(x) for x in os.environ.get("MYOHAND_ROT_GAIN_SCALE", "1.0").split(",")]
+        if len(_rgs) == 1:
+            _rgs = _rgs * 3
+        assert len(_rgs) == 3, _rgs
+        _rgt = torch.tensor(_rgs, dtype=torch.float32, device=device)
+        self.Kp_rot, self.Ki_rot, self.Kd_rot = 0.3 * _rgt, 0.01 * _rgt, 0.005 * _rgt
+        print(f"[wrist] rot_gain_scale(x,y,z)={_rgs} Kp_rot={self.Kp_rot.tolist()}", flush=True)
         self.physics_substeps = int(round((1.0 / 60.0) / self.mj_model.opt.timestep))
         print(f"[physics] dt=1/{1.0 / self.mj_model.opt.timestep:.0f} substeps={self.physics_substeps} solref0_min={float(self.mj_model.geom_solref[:, 0].min()):.5f}", flush=True)
         self.sim_dt = self.mj_model.opt.timestep      # raw physics integration step (1/120)
