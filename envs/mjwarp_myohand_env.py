@@ -401,6 +401,26 @@ class MyoHandPourEnv:
         # fine throughout.
         self.demo_target_joints_pos = (self._axis_C @ _raw_target_joints_pos.reshape(-1, 3).T).T.reshape(_raw_target_joints_pos.shape)
 
+        # ---- pad-site targets (MYOHAND_PADPOS_W > 0) ----
+        # Demo pad positions come from the *_v2pad.pkl (scripts/retargeting/
+        # add_pad_sites.py), raw frame like myo_joints, so same _axis_C.
+        # Pad local offsets (distal body frame, metres) come from
+        # assets/retargeted/pad_sites_local.json; world pad pos is computed
+        # in-sim from body pose + offset, no XML change.
+        self._pad_w = float(os.environ.get("MYOHAND_PADPOS_W", "0.0"))
+        self._pad_k = float(os.environ.get("MYOHAND_PADPOS_K", "80.0"))
+        self.demo_pad_pos = None
+        if self._pad_w > 0.0:
+            import json as _json
+            _pad_keys = ["thumb_pad", "index_pad", "middle_pad", "ring_pad", "pinky_pad"]
+            _pad_bodies = ["distal_thumb_r", "distph2_r", "distph3_r", "distph4_r", "distph5_r"]
+            assert "pad_joints" in self.rh_demo, "MYOHAND_PADPOS_W>0 needs the *_v2pad.pkl as MYOHAND_DEMO"
+            _raw_pad = torch.stack([self._to_tensor(self.rh_demo["pad_joints"][k]) for k in _pad_keys], dim=1).to(device=self.device, dtype=torch.float32)
+            self.demo_pad_pos = (self._axis_C @ _raw_pad.reshape(-1, 3).T).T.reshape(_raw_pad.shape)
+            _pj = _json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets/retargeted/pad_sites_local.json")))["bodies"]
+            self._pad_local = torch.tensor([_pj[b]["pad_local_m"] for b in _pad_bodies], device=self.device, dtype=torch.float32)  # (5,3)
+            self._pad_body_names = _pad_bodies
+
         # target VELOCITIES -- REAL fields from the original demo data
         # (not finite-differenced from our own retargeted trajectory).
         # PhysGraph's own compute_observations_side reads these directly
@@ -965,6 +985,24 @@ class MyoHandPourEnv:
         diff_level_1_pos_dist = tip_dist("level_1_joints")
         diff_level_2_pos_dist = tip_dist("level_2_joints")
 
+        # ---- pad position term (MYOHAND_PADPOS_W) ----
+        if self.demo_pad_pos is not None:
+            if not hasattr(self, "_pad_body_ids_t"):
+                self._pad_body_ids_t = torch.as_tensor(
+                    [mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, n) for n in self._pad_body_names],
+                    device=self.device, dtype=torch.long)
+            _pq = wp.to_torch(self.data.xquat)[:, self._pad_body_ids_t]          # (n,5,4) wxyz
+            _pb = xpos[:, self._pad_body_ids_t, :]                               # (n,5,3)
+            _pv = self._pad_local[None].expand(_pb.shape[0], -1, -1)
+            _qw, _qu = _pq[..., :1], _pq[..., 1:]
+            _t = torch.cross(_qu, _pv, dim=-1)
+            _pad_world = _pb + _pv + 2.0 * (_qw * _t + torch.cross(_qu, _t, dim=-1))
+            pad_dist = torch.norm(self.demo_pad_pos[cur_idx] - _pad_world, dim=-1)  # (n,5)
+            reward_pad = torch.exp(-self._pad_k * pad_dist).mean(-1)
+        else:
+            pad_dist = torch.zeros(diff_eef_pos_dist.shape[0], 5, device=self.device)
+            reward_pad = torch.zeros_like(diff_eef_pos_dist)
+
         diff_joints_vel = target_joints_vel - joints_vel
 
         reward_eef_pos = torch.exp(-40 * diff_eef_pos_dist)
@@ -1104,6 +1142,8 @@ class MyoHandPourEnv:
             "obj_rot_deg": diff_obj_rot_angle.abs() / np.pi * 180,
             "tip_force_sum": tip_force_sum,
             "tip_rot_deg": tip_rot_angle.mean(-1) * 180.0 / np.pi,
+            "pad_mm": pad_dist.mean(-1) * 1000.0,
+            "pad_thumb_mm": pad_dist[:, 0] * 1000.0,
             "contact_fail": contact_fail.float(),
             "power": power,
             "wrist_power": wrist_power,
@@ -1135,6 +1175,7 @@ class MyoHandPourEnv:
             + 0.1 * reward_obj_vel + 0.1 * reward_obj_ang_vel
             + float(os.environ.get("MYOHAND_FORCE_REWARD_W", "0.0")) * reward_finger_tip_force
             + _tr_w * reward_tip_rot
+            + self._pad_w * reward_pad
             + _jq_w * reward_joint_q + _lim_w * reward_limit + _ffs_w * reward_ffspace
             + 0.5 * reward_power + 0.5 * reward_wrist_power
         )
@@ -1184,6 +1225,7 @@ class MyoHandPourEnv:
                 "reward_obj_ang_vel": reward_obj_ang_vel,
                 "reward_finger_tip_force": reward_finger_tip_force,
                 "reward_tip_rot": reward_tip_rot,
+                "reward_pad": reward_pad,
                 "reward_joint_q": reward_joint_q,
                 "reward_limit": reward_limit,
                 "reward_ffspace": reward_ffspace,
