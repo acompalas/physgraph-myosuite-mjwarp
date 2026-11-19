@@ -379,6 +379,7 @@ class MyoHandPourEnv:
         # per-body velocity (cvel) has a specific 6D com-based
         # convention not yet verified for mujoco_warp, deferred
         self.prev_body_xpos = None
+        self._reset_fix = os.environ.get("MYOHAND_RESET_FIX", "1") == "1"
         self.current_joints_pos_ = torch.zeros(num_envs, 20, 3, device=device)
         self.current_joints_vel_ = torch.zeros(num_envs, 20, 3, device=device)
 
@@ -648,7 +649,7 @@ class MyoHandPourEnv:
         qpos[env_ids, self.dst_adr + 3:self.dst_adr + 7] = rotmat_to_quat(dst_pose0[:3, :3][None])[0]
 
         qvel[env_ids] = 0.0
-        if os.environ.get('MYOHAND_RANDOM_START', '0') == '1' and getattr(self.model, 'na', 0) > 0:
+        if (self._reset_fix or os.environ.get('MYOHAND_RANDOM_START', '0') == '1') and getattr(self.model, 'na', 0) > 0:
             wp.to_torch(self.data.act)[env_ids] = 0.0
 
         self.progress_buf[env_ids] = seq_idx
@@ -665,6 +666,25 @@ class MyoHandPourEnv:
         self._applied_torque[env_ids] = 0.0
 
         mjw.forward(self.model, self.data)
+
+        if self._reset_fix:
+            # refresh the buffers that _compute_obs / the next velocity difference read, so a new
+            # episode does not inherit the previous episode's last joint positions and velocities
+            _jp = self._tracked_joints_pos()
+            if self.prev_body_xpos is None:
+                self.prev_body_xpos = _jp.clone()
+            else:
+                self.prev_body_xpos[env_ids] = _jp[env_ids]
+            self.current_joints_pos_[env_ids] = _jp[env_ids]
+            self.current_joints_vel_[env_ids] = 0.0
+
+    def _tracked_joints_pos(self):
+        """Tracked joint positions (bodies from xpos, tips from site_xpos), same as _compute_reward."""
+        xpos = wp.to_torch(self.data.xpos)
+        site_xpos = wp.to_torch(self.data.site_xpos)
+        body_vals = xpos[:, self.body_ids[1:], :]
+        site_vals = site_xpos[:, self.site_ids[1:].clip(min=0), :]
+        return torch.where(self.is_site_mask[None, :, None], site_vals, body_vals)
 
     def reset(self):
         """Full reset -- all envs. Used once at the very start of training."""
